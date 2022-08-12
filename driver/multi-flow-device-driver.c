@@ -30,6 +30,7 @@ int init_module(void);
 void cleanup_module(void);
 static int device_open(struct inode *, struct file *);
 static int device_release(struct inode *, struct file *);
+static ssize_t device_ioctl(struct file *, unsigned int, unsigned long);
 
 /* Driver operations
 *  Each field corresponds to the address of some function defined by the driver to handle a requested operation:
@@ -37,15 +38,15 @@ static int device_release(struct inode *, struct file *);
         - release session for a minor
         - read for a minor
         - write for a minor
-        - manage control requests for a minor
+        - manage I/O control requests for a minor
 */
 static struct file_operations fops = {
         .owner = THIS_MODULE,
         .open =  device_open,
-        .release = device_release//,
+        .release = device_release,
         //.write = device_write,
         //.read = device_read,
-        //.unlocked_ioctl = device_ioctl
+        .unlocked_ioctl = device_ioctl
 };
 
 
@@ -84,6 +85,45 @@ static int device_release(struct inode *inode, struct file *file) {
         pr_info("Session closed for minor: %d\n", minor);
         kfree(file->private_data);
         file->private_data = NULL;
+        return 0;
+}
+
+/**
+ * device_ioctl - manager of I/O control requests 
+ * @filp:       I/O session to the device file
+ * @command:    requested ioctl command
+ * @param:      optional parameter (timeout)
+ */
+static ssize_t device_ioctl(struct file *filp, unsigned int command, unsigned long param) {
+        session_t *session = (session_t *)filp->private_data;
+        int minor = get_minor(filp);
+
+        switch (command) {
+        case TO_HIGH_PRIORITY:
+                session->priority = HIGH_PRIORITY;
+                pr_info("Switched to high priority for minor: %d\n", minor);
+                break;
+        case TO_LOW_PRIORITY:
+                session->priority = LOW_PRIORITY;
+                pr_info("Switched to low priority for minor: %d\n", minor);
+                break;
+        case BLOCK:
+                session->flags = GFP_KERNEL;
+                pr_info("Switched to blocking operations for minor: %d\n", minor);
+                break;
+        case UNBLOCK:
+                session->flags = GFP_ATOMIC;
+                pr_info("Switched to unblocking operations for minor: %d\n", minor);
+                break;
+        case TIMEOUT:
+                session->flags = GFP_ATOMIC;
+                session->timeout = get_seconds(param);
+                pr_info("Setup of timeout for blocking operations to %ld sec for minor: %d\n", session->timeout, minor);
+                break;
+        default:
+                return -ENOTTY;
+        }
+
         return 0;
 }
 
