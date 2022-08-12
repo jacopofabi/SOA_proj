@@ -9,6 +9,17 @@
 #define LOW_PRIORITY 0                                  // index of low priority
 #define HIGH_PRIORITY 1                                 // index of high priority
 
+/* ioctl values */
+#define TO_HIGH_PRIORITY        3                       
+#define TO_LOW_PRIORITY         4
+#define BLOCK                   5
+#define UNBLOCK                 6
+#define TIMEOUT                 7
+
+/* bounds for timeout */
+#define MIN_SECONDS             1                       // minimum amount of seconds
+#define MAX_SECONDS             17179869                // maximum amount of seconds
+
 
 /*STRUCTURES DEFINITION*/
 
