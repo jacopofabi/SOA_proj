@@ -28,6 +28,64 @@ static int major;
 /* Function prototypes */
 int init_module(void);
 void cleanup_module(void);
+static int device_open(struct inode *, struct file *);
+static int device_release(struct inode *, struct file *);
+
+/* Driver operations
+*  Each field corresponds to the address of some function defined by the driver to handle a requested operation:
+        - open session for a minor
+        - release session for a minor
+        - read for a minor
+        - write for a minor
+        - manage control requests for a minor
+*/
+static struct file_operations fops = {
+        .owner = THIS_MODULE,
+        .open =  device_open,
+        .release = device_release//,
+        //.write = device_write,
+        //.read = device_read,
+        //.unlocked_ioctl = device_ioctl
+};
+
+
+
+/**
+ * device_open - session opening for a minor
+ * @inode:      I/O metadata of the device file
+ * @file:       I/O session to the device file
+ */
+static int device_open(struct inode *inode, struct file *file) {
+        int minor;
+        session_t *session;
+
+        minor = get_minor(file);
+        if (minor >= MINOR_NUMBER) {
+                return -ENODEV;
+        }
+        pr_info("Session opened for minor: %d\n", minor);
+
+        session = kmalloc(sizeof(session_t), GFP_KERNEL);
+        session->priority = HIGH_PRIORITY;
+        session->flags = GFP_KERNEL;
+        session->timeout = MAX_SECONDS;
+
+        file->private_data = session;
+        return 0;
+}
+
+/**
+ * device_release - close session for a minor
+ * @inode:      I/O metadata of the device file
+ * @file:       I/O session to the device file
+ */
+static int device_release(struct inode *inode, struct file *file) {
+        int minor = get_minor(file);
+        pr_info("Session closed for minor: %d\n", minor);
+        kfree(file->private_data);
+        file->private_data = NULL;
+        return 0;
+}
 
 /**
  * Module initialization function
