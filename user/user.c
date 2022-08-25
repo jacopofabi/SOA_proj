@@ -6,13 +6,13 @@
 #include <pthread.h>
 #include <sys/ioctl.h>
 #include <errno.h>
-#include "lib/definitions.h"
+#include "lib/defines.h"
 
 int main(int argc, char** argv) {
         int res;
         int out_ioctl;
         int fd;
-        char *path;
+        char *device_path;     
         unsigned long timeout;
 
         int command = 0;
@@ -25,12 +25,14 @@ int main(int argc, char** argv) {
         }
 
         // open device
-        path = argv[1];
-        fd = open(path, O_RDWR);
+        device_path = argv[1];
+        fd = device_open(device_path, O_RDWR);
         if (fd == -1) {
-                printf("open error on device file %s\n", path);
+                printf("open error on device file %s\n", device_path);
                 return -1;
         }
+        printf("File descritor: %d", fd);
+        printf("Device opened: %s", device_path);
 
         while (true) {
                 printf("\033[2J\033[H");
@@ -52,57 +54,52 @@ int main(int argc, char** argv) {
                 scanf("%d", &command);
                 
                 switch(command) {
-                case 1:
+                case TO_HIGH_PRIORITY:
                         out_ioctl = set_high_priority(fd);
-                        if (out_ioctl == -1) {
-                                printf("Error high priority\n");
-                        }
-                        printf("Switched to high priority\n");
+                        if (out_ioctl == -1) printf("Error high priority\n");
+                        else printf("Switched to high priority\n");
                         break;
-                case 2:
+                case TO_LOW_PRIORITY:
                         out_ioctl = set_low_priority(fd);
-                        if (out_ioctl == -1) {
-                                printf("Error low priority\n");
-                        }
-                        printf("Switched to low priority\n");
+                        if (out_ioctl == -1) printf("Error low priority\n");
+                        else printf("Switched to low priority\n");
                         break;
-                case 3:
+                case BLOCKING:
                         out_ioctl = set_blocking_operations(fd);
-                        if (out_ioctl == -1) {
-                                printf("Error blocking operations\n");
-                        }
-                        printf("Switched to blocking operations\n");
+                        if (out_ioctl == -1) printf("Error blocking operations\n");
+                        else printf("Switched to blocking operations\n");
                         break;
-                case 4:
+                case UNBLOCKING:
                         out_ioctl = set_unblocking_operations(fd);
-                        if (out_ioctl == -1) {
-                                printf("Error non-blocking operations\n");
-                        }
-                        printf("Switched to non-blocking operations\n");
+                        if (out_ioctl == -1) printf("Error non-blocking operations\n");
+                        else printf("Switched to non-blocking operations\n");
                         break;
-                case 5:
+                case TIMEOUT:
                         printf("Inserisci il valore del timeout: ");
                         do {
                                 scanf("%ld", &timeout);
                         } while (timeout < 1);
                         out_ioctl = set_timeout(fd, timeout);
-                        if (out_ioctl == -1) {
-                                printf("Error timeout\n");
-                        }
-                        printf("Update awake timeout for blocking operations\n");
+                        if (out_ioctl == -1) printf("Error timeout\n");
+                        else printf("Update awake timeout for blocking operations\n");
                         break;
-                case 6:
+                case WRITE:
                         printf("Inserisci testo da scrivere: ");
-                        fgets(buf, MAX_BUF_SIZE, stdin);
-                        res = write(fd, buf, strlen(buf));
+                        //fgets(buf, MAX_BUF_SIZE, stdin);
+                        scanf("%s", buf);
+                        res = device_write(fd, buf, strlen(buf));
+                        if (res == -1) printf("Error on write operation (%s)\n", strerror(errno));
+                        else printf("%d bytes are correctly written to device %s\n", res, device_path);
                         break;
-                case 7:
+                case READ:
                         printf("Inserisci quanti byte vuoi leggere: ");
                         scanf("%d", &offset);
-                        res = read(fd, buf, offset);
+                        res = device_read(fd, buf, offset);
+                        if (res == -1) printf("Error on read operation (%s)\n", strerror(errno));
+                        else printf("%d bytes are correctly read from device %s\n", res, device_path);
                         break;
-                case 8:
-                        close(fd);
+                case RELEASE:
+                        device_release(fd);
                         return 0;
                 default: 
                         printf("Operazione non disponibile\n\n");
