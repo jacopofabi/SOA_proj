@@ -16,6 +16,9 @@
 #define READ                    7
 #define RELEASE                 8
 
+/* Signal for async notification */
+#define SIGETX    44
+
 /** ioctl commands re-definition
 *   The ioctl function requires the same values used by the driver: 3,4,5,6,7 as defined in /driver/lib/defines.h 
 */

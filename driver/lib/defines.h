@@ -18,6 +18,8 @@
 #include <linux/time.h>
 #include <linux/string.h>
 #include <linux/errno.h>
+#include <linux/signal.h>
+#include <linux/jiffies.h>
 
 /* GENERAL INFORMATION */
 #define MODNAME "MULTIFLOW DRIVER"
@@ -38,7 +40,10 @@
 #define MIN_SECONDS 1                // minimum amount of seconds
 #define MAX_SECONDS 17179869         // maximum amount of seconds
 #define MAX_BYTE_IN_BUFFER 32 * 4096 // maximum number of byte in buffer
-#define CONFIG_HZ 250
+
+/* Signal for async notification */
+#define SIGETX    44
+
 
 /* STRUCTURES DEFINITION */
 
@@ -91,8 +96,22 @@ typedef struct data_segment {
  */
 typedef struct object {
         struct workqueue_struct *workqueue;
-        device_manager_t *buffer[FLOWS];
+        device_manager_t *manager[FLOWS];
 } object_t;
+
+/**
+ * async_task_t - deffered work
+ * @del_work:           delayed_work struct uses a timer to run after the specified time interval
+ * @to_write:           byte to write
+ * @minor:              minor number of the device
+ * @proc:               process that has requested the deferred work
+ */
+typedef struct async_task {
+        struct delayed_work del_work;
+        data_segment_t *to_write;
+        int minor;
+        struct task_struct *proc;
+} async_task_t;
 
 
 /* DEVICE MANAGER FUNCTION PROTOTYPES */
@@ -123,15 +142,15 @@ void read_device_buffer(device_manager_t *, char *, int);
 #define get_seconds(sec) (sec > MAX_SECONDS ? sec = MAX_SECONDS : (sec == 0 ? sec = MIN_SECONDS : sec))
 #define used_space(priority, minor) (priority == LOW_PRIORITY ? (byte_in_buffer[get_buffer_index(priority, minor)] + booked_byte[minor]) : byte_in_buffer[get_buffer_index(priority, minor)])
 #define free_space(priority, minor) MAX_BYTE_IN_BUFFER - used_space(priority, minor)
-#define is_free(priority, minor) (free_space(priority, minor) == 0 ? 0 : 1)
+#define is_free(priority, minor) (free_space(priority, minor) > 0 ? 1 : 0)
 #define is_empty(priority, minor) (byte_to_read(priority, minor) == 0 ? 1 : 0)
-#define is_blocking(flags) (flags == GFP_ATOMIC ? 0 : 1)
+#define is_blocking(flags) (flags == GFP_KERNEL ? 1 : 0)
 #define add_to_buffer(priority, minor, len) byte_in_buffer[get_buffer_index(priority, minor)] += len
 #define add_booked_byte(minor, len) booked_byte[minor] += len
 #define sub_to_buffer(priority, minor, len) byte_in_buffer[get_buffer_index(priority, minor)] -= len
 #define sub_booked_byte(minor, len) booked_byte[minor] -= len
-#define atomic_inc_thread_in_wait(priority, minor) __sync_fetch_and_add(thread_in_wait + get_thread_index(priority, minor), 1)
-#define atomic_dec_thread_in_wait(priority, minor) __sync_fetch_and_sub(thread_in_wait + get_thread_index(priority, minor), 1)
+#define inc_thread_in_wait(priority, minor) __sync_fetch_and_add(thread_in_wait + get_thread_index(priority, minor), 1)
+#define dec_thread_in_wait(priority, minor) __sync_fetch_and_sub(thread_in_wait + get_thread_index(priority, minor), 1)
 
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)
@@ -172,7 +191,7 @@ void read_device_buffer(device_manager_t *, char *, int);
 
 
 /**
- * This macro is equal to wait_event_interruptible_timeout with exclusive mode is enabled.
+ * This macro is equal to wait_event_interruptible_timeout with exclusive mode enabled.
  * We change __wait_event_interruptible_exclusive_timeout instead of __wait_event_interruptible_timeout.
  * 
  * The process goes to sleep until the @condition evaluates to true or a signal is received.
@@ -199,11 +218,15 @@ void read_device_buffer(device_manager_t *, char *, int);
 
 /**
  * This macro returns a value of condition that is evaluated in the macro 
- * wait_event_interruptible_exclusive_timeout.
+ * wait_event_interruptible_exclusive_timeout. 
  *
  * lock_and_awake
  * @condition:  condition to evaluate
  * @mutex:      pointer to mutex to try lock
+ * 
+ * The process try to acquire the lock, if it is possible returns:
+ * - 1 if the @condition evaluated to true,
+ * - 0 if the @condition evaluated to false, with the release of the lock.
  */
 #define lock_and_awake(condition, mutex) ({         \
         int __ret = 0;                              \
