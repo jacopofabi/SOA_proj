@@ -40,7 +40,9 @@ int main(int argc, char** argv) {
         device_path = argv[1];
         fd = device_open(device_path, O_RDWR);
         if (fd == -1) {
-                printf("open error on device file %s\n", device_path);
+                if (errno == EBUSY) printf("Device file is disabled, cannot use it.\n");  
+                else if (errno == ENODEV) printf("Invalid minor number specified.\n");
+                else printf("open error on device file %s\n", device_path);
                 return -1;
         }
 

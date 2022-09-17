@@ -8,6 +8,8 @@
 * *******************************************************************************/
 #include "lib/defines.h"
 
+// TODO: da codice fare il check se device disabled non posso apri sessione
+
 /* Module parameters */
 bool enabled[MINOR_NUMBER] = {[0 ... (MINOR_NUMBER-1)] = true};                         //state of the device files
 long bytes_in_buffer[FLOWS * MINOR_NUMBER];                                              //#bytes in manager for every minor
@@ -66,7 +68,8 @@ static struct file_operations fops = {
 static int device_open(struct inode *inode, struct file *filp) {
         session_t *session;
         int minor = get_minor(filp);
-        if (minor >= MINOR_NUMBER) { return -ENODEV; }
+        if (minor >= MINOR_NUMBER) return -ENODEV;
+        if (!enabled[minor]) return -EBUSY;
         pr_info("Session opened for minor: %d\n", minor);
         session = kmalloc(sizeof(session_t), GFP_KERNEL);
         session->priority = HIGH_PRIORITY;
