@@ -1,1 +1,0 @@
-cmd_/home/jacopo/Scrivania/SOA_proj/driver/modules.order := {   echo /home/jacopo/Scrivania/SOA_proj/driver/multi-flow-device-driver.ko; :; } | awk '!x[$$0]++' - > /home/jacopo/Scrivania/SOA_proj/driver/modules.order

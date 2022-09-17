@@ -1,1 +1,0 @@
-cmd_/home/jacopo/Scrivania/SOA_proj/driver/Module.symvers := sed 's/\.ko$$/\.o/' /home/jacopo/Scrivania/SOA_proj/driver/modules.order | scripts/mod/modpost -m -a  -o /home/jacopo/Scrivania/SOA_proj/driver/Module.symvers -e -i Module.symvers   -T -
