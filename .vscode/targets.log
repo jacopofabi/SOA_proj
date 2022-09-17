@@ -8,7 +8,7 @@ make: *** No rule to make target 'all'.  Stop.
 # This is free software: you are free to change and redistribute it.
 # There is NO WARRANTY, to the extent permitted by law.
 
-# Make data base, printed on Sat Sep 17 20:23:15 2022
+# Make data base, printed on Sat Sep 17 20:44:38 2022
 
 # Variables
 
@@ -25,9 +25,9 @@ SSH_AGENT_LAUNCHER = gnome-keyring
 # environment
 TERMINATOR_DBUS_NAME = net.tenshu.Terminator25ef4b219e3b005583550f2b0f9f990c3
 # environment
-VSCODE_CWD = /home/jacopo/Scrivania/SOA_proj
+VSCODE_CWD = /home/jacopo/Scrivania
 # environment
-TERMINATOR_UUID = urn:uuid:d47fd6d2-2d56-421e-9699-433b1ed67f80
+TERMINATOR_UUID = urn:uuid:91a58414-0b4c-41c4-aa71-c6a7936235e7
 # default
 MAKE_COMMAND := make
 # environment
@@ -47,7 +47,7 @@ LSCOLORS = Gxfxcxdxbxegedabagacad
 # environment
 XDG_DATA_DIRS = /usr/local/share/:/usr/share/:/var/lib/snapd/desktop
 # environment
-OLDPWD = /home/jacopo/Scrivania/SOA_proj/driver
+OLDPWD = /home/jacopo/Scrivania/SOA_proj
 # automatic
 ^D = $(patsubst %/,%,$(dir $^))
 # automatic
@@ -93,7 +93,7 @@ MAKEFILE_LIST :=
 # environment
 ZSH = /home/jacopo/.oh-my-zsh
 # environment
-VSCODE_PID = 63643
+VSCODE_PID = 74215
 # environment
 XDG_SESSION_TYPE = wayland
 # automatic
@@ -175,7 +175,7 @@ MAKE_VERSION := 4.3
 # environment
 MANAGERPID = 1709
 # environment
-GIO_LAUNCHED_DESKTOP_FILE_PID = 3342
+GIO_LAUNCHED_DESKTOP_FILE_PID = 73472
 # environment
 PAGER = less
 # environment
@@ -285,6 +285,6 @@ GNUmakefile:
 # strcache performance: lookups = 19 / hit rate = 15%
 # hash-table stats:
 # Load=16/8192=0%, Rehash=0, Collisions=0/19=0%
-# Finished Make data base on Sat Sep 17 20:23:15 2022
+# Finished Make data base on Sat Sep 17 20:44:38 2022
 
  
