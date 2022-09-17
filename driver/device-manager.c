@@ -1,7 +1,7 @@
 #include "lib/defines.h"
 
 /**
- * init_device_manager - initialization of the device: buffer, mutex and workqueue
+ * init_device_manager - initialization of the device: linked list of data segments, mutex and waitqueue
  * @device:     pointer to the device to initialize
  */
 void init_device_manager(device_manager_t *device) {
@@ -16,7 +16,7 @@ void init_device_manager(device_manager_t *device) {
  * init_data_segment - initialization of data segment
  * @element:    pointer to data segment to initialize
  * @content:    content of data segment
- * @len:        size of data segment content
+ * @len:        size of the content
  */
 void init_data_segment(data_segment_t *element, char *content, int len) {
         element->content = content;
@@ -25,19 +25,19 @@ void init_data_segment(data_segment_t *element, char *content, int len) {
 }
 
 /**
- * write_device_buffer - put in list a new data segment
- * @device:     pointer to device that handles the buffer to edit
- * @segment:    pointer to data segment to add
+ * write_device_buffer - add new data segment to buffer
+ * @device:     pointer to device that handles the linked list to edit
+ * @segment:    pointer to data segment to add at the end of the list
  */
 void write_device_buffer(device_manager_t *device, data_segment_t *segment) {
         list_add_tail(&(segment->list), &(device->head));
 }
 
 /**
- * read_device_buffer - read data in buffer
- * @device:             pointer device that handles the buffer to read
- * @read_content:       buffer that contains read data
- * @len:                bytes number to be read
+ * read_device_buffer - read data from buffer
+ * @device:             pointer to device that handles the linked list to read
+ * @read_content:       buffer that is filled with read data
+ * @len:                number of bytes to be read
  */
 void read_device_buffer(device_manager_t *device, char *read_content, int len) {
         struct list_head *cur;
@@ -51,6 +51,7 @@ void read_device_buffer(device_manager_t *device, char *read_content, int len) {
         cur_seg = list_entry(cur, struct data_segment, list);
         byte_read = 0;
 
+        // read data from one or more data segments
         while (len - byte_read >= cur_seg->size - cur_seg->byte_read) {
                 memcpy(read_content + byte_read, cur_seg->content + cur_seg->byte_read, cur_seg->size - cur_seg->byte_read);
                 byte_read += cur_seg->size - cur_seg->byte_read;

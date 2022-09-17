@@ -8,16 +8,17 @@
 * *******************************************************************************/
 #include "lib/defines.h"
 
-// TODO: see likely/unlikely for branch prediction (se predizione è corretta ho zero cicli di clock, altrimenti so tanti)
-// potremmo usarle sfruttando un profilo operazionale (forse)
-
 /* Module parameters */
 bool enabled[MINOR_NUMBER] = {[0 ... (MINOR_NUMBER-1)] = true};                         //state of the device files
-long byte_in_buffer[FLOWS * MINOR_NUMBER];                                              //#bytes in manager for every minor
-long thread_in_wait[FLOWS * MINOR_NUMBER];                                              //#threads in wait on manager for every minor
+long bytes_in_buffer[FLOWS * MINOR_NUMBER];                                              //#bytes in manager for every minor
+long threads_in_wait[FLOWS * MINOR_NUMBER];                                              //#threads in wait on manager for every minor
 module_param_array(enabled, bool, NULL, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-module_param_array(byte_in_buffer, long, NULL, S_IRUSR | S_IRGRP);
-module_param_array(thread_in_wait, long, NULL, S_IRUSR | S_IRGRP);
+MODULE_PARM_DESC(enabled_device, "Module parameter implemented in order to enable or disable a device with a specific \
+minor number. If it is disabled, any attempt to open a session should fail, except for already opened sessions.");
+module_param_array(bytes_in_buffer, long, NULL, S_IRUSR | S_IRGRP);
+MODULE_PARM_DESC(hp_bytes, "Number of bytes currently present in low and high priority flows.");
+module_param_array(threads_in_wait, long, NULL, S_IRUSR | S_IRGRP);
+MODULE_PARM_DESC(hp_threads, "Number of threads currently in wait on low and high priority flows.");
 
 /* Global variables */
 static int major;
@@ -32,8 +33,6 @@ static int device_release(struct inode *, struct file *);
 static ssize_t device_read(struct file *, char *, size_t, loff_t *);
 static ssize_t device_write(struct file *, const char *, size_t, loff_t *);
 static ssize_t device_ioctl(struct file *, unsigned int, unsigned long);
-static int device_fasync(int, struct file *, int);
-
 int setup_operation(device_manager_t *, session_t *, int, char *);
 void async_write(struct delayed_work *);
 
@@ -157,7 +156,6 @@ static ssize_t device_read(struct file *filp, char *buff, size_t len, loff_t *of
         if (len <= 0) return 0;
 
         tmp_buf = kmalloc(len, session->flags);
-        // if (unlikely(!tmp_buf)) return -ENOMEM;
 
         // setup for blocking or non-blocking operation
         res = setup_operation(manager, session, minor, "read");
@@ -205,29 +203,24 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
         session_t *session;
         device_manager_t *manager;
         data_segment_t *to_write;
-        async_task_t *the_task;
+        async_task_t *task;
 
-        // retrieve the obj related to the minor and the manager related to the priority of the session of the thread
+        // retrieve the obj related to the minor and the manager related to the priority of the session
         minor = get_minor(filp);
         obj = devices + minor;
         session = (session_t *)filp->private_data;
         manager = obj->manager[session->priority];
-        the_task = NULL;
+        task = NULL;
 
         pr_info("Write operation called for minor: %d\n", minor);
         if (len <= 0) return 0;
 
         // copy data to write on a temp buffer, from user to kernel space returns # of bytes that colud not be copied
         tmp_buf = kmalloc(len, session->flags);
-        //if (unlikely(!tmp_buffer)) return -ENOMEM;
         byte_not_copied = copy_from_user(tmp_buf, buff, len);
 
         // prepare memory areas
         to_write = kmalloc(sizeof(data_segment_t), session->flags);
-        //if (unlikely(!to_write)) {
-        //        kfree(tmp_buffer);
-        //        return -ENOMEM;
-        //}
 
         // setup for blocking or non-blocking operation
         res = setup_operation(manager, session, minor, "write");
@@ -257,31 +250,27 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
                         goto free_area;
                 }
                 // setup the asynchronous task
-                the_task = kmalloc(sizeof(async_task_t), session->flags);
-                the_task->to_write = to_write;
-                the_task->minor = minor;
+                task = kmalloc(sizeof(async_task_t), session->flags);
+                task->to_write = to_write;
+                task->minor = minor;
                 
                 // save PID for signalling
-                the_task->proc = get_current(); 
+                task->proc = get_current(); 
                 signum = SIGETX;       
-                //if (unlikely(!the_task)) {
-                //        kfree(tmp_buf);
-                //        kfree(to_write);
-                //        return -ENOMEM;
-                //}
+
                 // initialize an already declared delayed_work item with a deffered write handler
                 pr_info("Insert thread in the workqueue...\n");
-                INIT_DELAYED_WORK(&(the_task->del_work), (void *)async_write);
+                INIT_DELAYED_WORK(&(task->del_work), (void *)async_write);
                 add_booked_byte(minor,len);
                 // insert the async task in the workqueue associated to the device after a delay of 5sec
-                queue_delayed_work(obj->workqueue, &(the_task->del_work), msecs_to_jiffies(5000));
+                queue_delayed_work(obj->workqueue, &(task->del_work), msecs_to_jiffies(5000));
         }
         return len;
 
         // label for manage memory release in case of error
 free_area:      kfree(tmp_buf);
                 free_data_segment(to_write);
-                kfree(the_task);
+                kfree(task);
                 return res;
 }
 
@@ -407,13 +396,10 @@ int init_module(void) {
         }
         // setup of structures
         for (i = 0; i < MINOR_NUMBER; i++) {
-                // a workqueue and two buffers for each device
+                // a workqueue and two managers, one for each priority flow of the specific device
                 devices[i].workqueue = create_singlethread_workqueue("work-queue-" + i);
                 devices[i].manager[LOW_PRIORITY] = kmalloc(sizeof(device_manager_t), GFP_KERNEL);
                 devices[i].manager[HIGH_PRIORITY] = kmalloc(sizeof(device_manager_t), GFP_KERNEL);
-
-                //if (unlikely(!devices[i].device[LOW_PRIORITY] || !devices[i].device[HIGH_PRIORITY])) break;
-
                 init_device_manager(devices[i].manager[LOW_PRIORITY]);
                 init_device_manager(devices[i].manager[HIGH_PRIORITY]);
         }

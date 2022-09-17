@@ -10,9 +10,10 @@
 #include "lib/defines.h"
 
 int priority;
+int num;
+struct sigaction sig;
 
 typedef void (*sighandler_t)(int);
-
 void event_handler(int number) { printf("\nAsynchronous write terminated\n"); }
 
 int main(int argc, char** argv) {
@@ -43,12 +44,18 @@ int main(int argc, char** argv) {
                 return -1;
         }
 
-        // setup signal for async notification
-        struct sigaction new;
-        sigemptyset(&new.sa_mask);
-        new.sa_flags = (SA_SIGINFO | SA_RESTART);
-        new.sa_handler = event_handler;
-        sigaction(SIGETX, &new, NULL);
+        // setup signal and signalset for async notification
+        sigemptyset(&sig.sa_mask);
+        sig.sa_flags = (SA_SIGINFO | SA_RESTART);
+        sig.sa_handler = event_handler;
+        sigaction(SIGETX, &sig, NULL);
+        
+        sigset_t set;   
+        sigemptyset(&set);
+        if (sigaddset(&set, SIGETX) == -1) { 
+                perror("Sigaddset error"); 
+                exit(-1);
+        }  
 
         // loop for operations on the device file
         while (true) {
@@ -74,12 +81,14 @@ int main(int argc, char** argv) {
                         if (out_ioctl == -1) printf("Error high priority\n");
                         else printf("Switched to high priority\n");
                         break;
+
                 case TO_LOW_PRIORITY:
                         priority = 0;
                         out_ioctl = set_low_priority(fd);
                         if (out_ioctl == -1) printf("Error low priority\n");
                         else printf("Switched to low priority\n");
                         break;
+
                 case BLOCKING:
                         out_ioctl = set_blocking_operations(fd);
                         if (out_ioctl == -1) printf("Error blocking operations\n");
@@ -91,6 +100,7 @@ int main(int argc, char** argv) {
                         if (out_ioctl == -1) printf("Error non-blocking operations\n");
                         else printf("Switched to non-blocking operations\n");
                         break;
+
                 case TIMEOUT:
                         printf("Inserisci il valore del timeout: ");
                         do {
@@ -100,16 +110,22 @@ int main(int argc, char** argv) {
                         if (out_ioctl == -1) printf("Error timeout\n");
                         else printf("Update awake timeout for blocking operations\n");
                         break;
+
                 case WRITE:
                         printf("Inserisci testo da scrivere: ");
                         scanf("%s", buf);
                         res = device_write(fd, buf, strlen(buf));
                         if (res == -1) printf("Error on write operation(%s)\n", strerror(errno));
                         else {
-                                if (priority == 1) { printf("%d bytes are correctly written to device %s\n", res, device_path);}
-                                else { printf("Waiting for async notification of write for %d bytes from device %s\n", res, device_path); }
+                                // we keep the interface able to synchronously notify the outcome at low priority
+                                if (priority == 0) {
+                                        printf("Waiting for async notification of write for %d bytes from device %s\n", res, device_path); 
+                                        sigwait(&set, &num); 
+                                }
+                                printf("%d bytes are correctly written to device %s\n", res, device_path);
                         }
                         break;
+
                 case READ:
                         printf("Inserisci quanti byte vuoi leggere: ");
                         scanf("%d", &offset);
@@ -117,9 +133,11 @@ int main(int argc, char** argv) {
                         if (res == -1) printf("Error on read operation (%s)\n", strerror(errno));
                         else printf("%d bytes are correctly read from device %s\n", res, device_path);
                         break;
+
                 case RELEASE:
                         device_release(fd);
                         return 0;
+                        
                 default: 
                         printf("Operazione non disponibile\n\n");
                 }

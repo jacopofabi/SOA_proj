@@ -1,0 +1,1 @@
+cmd_/home/jacopo/Scrivania/SOA_proj/driver/multi-flow-device-driver.o := ld -m elf_x86_64   -r -o /home/jacopo/Scrivania/SOA_proj/driver/multi-flow-device-driver.o /home/jacopo/Scrivania/SOA_proj/driver/multi-flow-device.o /home/jacopo/Scrivania/SOA_proj/driver/device-manager.o

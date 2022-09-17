@@ -37,9 +37,9 @@
 #define TIMEOUT 7
 
 /* BOUNDS */
-#define MIN_SECONDS 1                // minimum amount of seconds
-#define MAX_SECONDS 17179869         // maximum amount of seconds
-#define MAX_BYTE_IN_BUFFER 32 * 4096 // maximum number of byte in buffer
+#define MIN_SECONDS 1                                    // minimum amount of seconds for timeout
+#define MAX_SECONDS 3600                                 // maximum amount of seconds for timeout
+#define MAX_BYTE_IN_BUFFER 32 * 4096                     // maximum number of byte in buffer
 
 /* Signal for async notification */
 #define SIGETX    44
@@ -61,7 +61,7 @@ typedef struct session {
 } session_t;
 
 /** 
- * Object that handles mutex, waitqueue and linked list for r/w operations on a priority flow of a specific minor
+ * Object that handles mutex, waitqueue and buffer of data segments related to a priority flow of a specific minor
  * device_manager_t - Device manager
  * @head:       head of linked list
  * @op_mutex:   mutex to synchronize operations in buffer
@@ -74,7 +74,7 @@ typedef struct device_manager {
 } device_manager_t;
 
 /** 
- * Single buffer associated to a specific linked list related to a priority flow of a specific minor
+ * Single data segment of a linked list that represents a buffer, related to a priority flow of a specific minor
  * data_segment_t - data segment
  * @list:       list_head element to link to list
  * @content:    byte content of data segment
@@ -132,48 +132,27 @@ void read_device_buffer(device_manager_t *, char *, int);
 #define get_minor(session) MINOR(session->f_dentry->d_inode->i_rdev)
 #endif
 
-// we avoid check on priority with a simple operation using a single vector for byte_in_buffer and thread_in_wait parameters
+// we avoid check on priority with a simple operation using a single vector for bytes_in_buffer and threads_in_wait parameters
 // priority low = 0 --> refers to buffers/threads from 0 to 128 (buffers/threads with low priority)
 // priority high = 1 --> refers to buffers/threads from 129 to 256 (buffers/threads with high priority)
 #define get_buffer_index(priority, minor) ((priority * MINOR_NUMBER) + minor)
 #define get_thread_index(priority, minor) ((priority * MINOR_NUMBER) + minor)
-#define byte_to_read(priority, minor) byte_in_buffer[get_buffer_index(priority, minor)]
+#define byte_to_read(priority, minor) bytes_in_buffer[get_buffer_index(priority, minor)]
 
 #define get_seconds(sec) (sec > MAX_SECONDS ? sec = MAX_SECONDS : (sec == 0 ? sec = MIN_SECONDS : sec))
-#define used_space(priority, minor) (priority == LOW_PRIORITY ? (byte_in_buffer[get_buffer_index(priority, minor)] + booked_byte[minor]) : byte_in_buffer[get_buffer_index(priority, minor)])
+#define used_space(priority, minor) (priority == LOW_PRIORITY ? (bytes_in_buffer[get_buffer_index(priority, minor)] + booked_byte[minor]) : bytes_in_buffer[get_buffer_index(priority, minor)])
 #define free_space(priority, minor) MAX_BYTE_IN_BUFFER - used_space(priority, minor)
 #define is_free(priority, minor) (free_space(priority, minor) > 0 ? 1 : 0)
 #define is_empty(priority, minor) (byte_to_read(priority, minor) == 0 ? 1 : 0)
 #define is_blocking(flags) (flags == GFP_KERNEL ? 1 : 0)
-#define add_to_buffer(priority, minor, len) byte_in_buffer[get_buffer_index(priority, minor)] += len
+#define add_to_buffer(priority, minor, len) bytes_in_buffer[get_buffer_index(priority, minor)] += len
 #define add_booked_byte(minor, len) booked_byte[minor] += len
-#define sub_to_buffer(priority, minor, len) byte_in_buffer[get_buffer_index(priority, minor)] -= len
+#define sub_to_buffer(priority, minor, len) bytes_in_buffer[get_buffer_index(priority, minor)] -= len
 #define sub_booked_byte(minor, len) booked_byte[minor] -= len
-#define inc_thread_in_wait(priority, minor) __sync_fetch_and_add(thread_in_wait + get_thread_index(priority, minor), 1)
-#define dec_thread_in_wait(priority, minor) __sync_fetch_and_sub(thread_in_wait + get_thread_index(priority, minor), 1)
+#define inc_thread_in_wait(priority, minor) __sync_fetch_and_add(threads_in_wait + get_thread_index(priority, minor), 1)
+#define dec_thread_in_wait(priority, minor) __sync_fetch_and_sub(threads_in_wait + get_thread_index(priority, minor), 1)
 
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)
 #define custom_wait wait_event_interruptible_exclusive_timeout
-#else
-/**
- * The process goes to sleep until the condition gets true or a timeout elapses.
- * The condition is checked each time the waitqueue is woken up.
- * 
- * wait_event_interruptible_timeout
- * @wq:         waitqueue to wait on
- * @condition:  expression for the event to wait for
- * @timeout:    timeout, in jiffies
- * 
- * Returns:
- * - 0 if the @condition evaluated to false after the @timeout elapsed,
- * - 1 if the @condition evaluated to true after the @timeout elapsed,
- * - the remaining jiffies if the @condition evaluated to true before the @timeout elapsed, 
- * - ERESTARTSYS if it was interrupted by a signal.
- */
-#define custom_wait wait_event_interruptible_timeout
-#endif
-
 
 /**
  * This macro allow to put in waitqueue a task in exclusive mode and set a timeout.
@@ -191,7 +170,7 @@ void read_device_buffer(device_manager_t *, char *, int);
 
 
 /**
- * This macro is equal to wait_event_interruptible_timeout with exclusive mode enabled.
+ * This macro is equal to existing wait_event_interruptible_timeout with exclusive mode enabled.
  * We change __wait_event_interruptible_exclusive_timeout instead of __wait_event_interruptible_timeout.
  * 
  * The process goes to sleep until the @condition evaluates to true or a signal is received.
