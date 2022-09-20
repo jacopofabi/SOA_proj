@@ -1,21 +1,21 @@
 #include "lib/defines.h"
 
 /**
- * init_device_manager - initialization of the device: linked list of data segments, mutex and waitqueue
- * @device:     pointer to the device to initialize
+ * init_flow_manager - initialization of the flow: linked list of data segments, mutex and waitqueue
+ * @flow:     pointer to flow manager to initialize
  */
-void init_device_manager(device_manager_t *device) {
+void init_flow_manager(flow_manager_t *flow) {
         struct list_head *head;
-        head = &(device->head);
-        mutex_init(&(device->op_mutex));
-        init_waitqueue_head(&(device->waitqueue));
+        head = &(flow->head);
+        mutex_init(&(flow->op_mutex));
+        init_waitqueue_head(&(flow->waitqueue));
         INIT_LIST_HEAD(head);
 }
 
 /**
  * init_data_segment - initialization of data segment
  * @element:    pointer to data segment to initialize
- * @content:    content of data segment
+ * @content:    pointer to content of data segment
  * @len:        size of the content
  */
 void init_data_segment(data_segment_t *element, char *content, int len) {
@@ -25,29 +25,29 @@ void init_data_segment(data_segment_t *element, char *content, int len) {
 }
 
 /**
- * write_device_buffer - add new data segment to buffer
- * @device:     pointer to device that handles the linked list to edit
- * @segment:    pointer to data segment to add at the end of the list
+ * write_data_segment - add new data segment to flow
+ * @flow:       pointer to flow manager that handles the linked list to edit
+ * @segment:    pointer to data segment to add before the specified head
+ *
+ * Add new data segment at the end of the list, so we build the flow as a FIFO queue.
  */
-void write_device_buffer(device_manager_t *device, data_segment_t *segment) {
-        list_add_tail(&(segment->list), &(device->head));
+void write_data_segment(flow_manager_t *flow, data_segment_t *segment) {
+        list_add_tail(&(segment->list), &(flow->head));
 }
 
 /**
- * read_device_buffer - read data from buffer
- * @device:             pointer to device that handles the linked list to read
+ * read_from_flow - read data from flow
+ * @flow:               pointer to flow manager that handles the linked list to read
  * @read_content:       buffer that is filled with read data
  * @len:                number of bytes to be read
  */
-void read_device_buffer(device_manager_t *device, char *read_content, int len) {
-        struct list_head *cur;
-        struct list_head *old;
-        struct list_head *head;
+void read_from_flow(flow_manager_t *flow, char *read_content, int len) {
+        struct list_head *head, *cur, *old;
         data_segment_t *cur_seg;
         int byte_read;
 
-        head = &(device->head);
-        cur = (head)->next;
+        head = &(flow->head);
+        cur = head->next;
         cur_seg = list_entry(cur, struct data_segment, list);
         byte_read = 0;
 
@@ -59,12 +59,12 @@ void read_device_buffer(device_manager_t *device, char *read_content, int len) {
                 cur = cur->next;
                 free_data_segment(cur_seg);
                 list_del(old);
-                
+
                 if (cur == head) break;
 
                 cur_seg = list_entry(cur, struct data_segment, list);
         }
-        
+
         // check if i must read in this condition: byte_to_read < cur->size
         if (cur != head) {
                 cur_seg = list_entry(cur, struct data_segment, list);
@@ -75,26 +75,26 @@ void read_device_buffer(device_manager_t *device, char *read_content, int len) {
 }
 
 /**
- * free_data_segment - free a data segment
+ * free_data_segment - release memory of a data segment
  * @segment:    pointer to data segment to free
  */
 void free_data_segment(data_segment_t *segment) {
         kfree(segment->content);
         kfree(segment);
         return;
-}
+}flow
 
 /**
- * free_device_buffer - free a buffer
- * @device:     pointer to device that handle the buffer to free
+ * free_flow - release memory of the flow
+ * @flow:     pointer to flow manager that handle the buffer to free
  */
-void free_device_buffer(device_manager_t *device) { 
+void free_flow(flow_manager_t *flow) {
         struct list_head *cur;
         struct list_head *old;
         struct list_head *head;
         data_segment_t *cur_seg;
 
-        head = &(device->head);
+        head = &(flow->head);
         old = NULL;
 
         list_for_each(cur, head) {
@@ -104,7 +104,7 @@ void free_device_buffer(device_manager_t *device) {
                 old = cur;
         }
 
-        mutex_destroy(&(device->op_mutex));
-        kfree(device);
+        mutex_destroy(&(flow->op_mutex));
+        kfree(flow);
         return;
 }

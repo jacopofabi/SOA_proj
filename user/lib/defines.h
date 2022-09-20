@@ -12,9 +12,11 @@
 #define BLOCKING                3
 #define UNBLOCKING              4
 #define TIMEOUT                 5
-#define WRITE                   6
-#define READ                    7
-#define RELEASE                 8
+#define ENABLE                  6
+#define DISABLE                 7
+#define WRITE                   8
+#define READ                    9
+#define RELEASE                 10
 
 /* Signal for async notification */
 #define SIGETX    44
@@ -28,6 +30,8 @@
 #define set_blocking_operations(fd)     ioctl(fd, 5)
 #define set_unblocking_operations(fd)   ioctl(fd, 6)
 #define set_timeout(fd, value)          ioctl(fd, 7, value)
+#define enable_device(fd)               ioctl(fd, 8)
+#define disable_device(fd)              ioctl(fd, 9)
 
 /* driver operations */
 #define device_open(path, flags)        open(path, flags)

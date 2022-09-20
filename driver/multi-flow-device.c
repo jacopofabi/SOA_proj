@@ -8,12 +8,12 @@
 * *******************************************************************************/
 #include "lib/defines.h"
 
-// TODO: da codice fare il check se device disabled non posso apri sessione
-
 /* Module parameters */
-bool enabled[MINOR_NUMBER] = {[0 ... (MINOR_NUMBER-1)] = true};                         //state of the device files
+bool enabled[MINOR_NUMBER] = {[0 ... (MINOR_NUMBER-1)] = true};                          //state of the device files
 long bytes_in_buffer[FLOWS * MINOR_NUMBER];                                              //#bytes in manager for every minor
 long threads_in_wait[FLOWS * MINOR_NUMBER];                                              //#threads in wait on manager for every minor
+
+// only device enabling state can be modified, so we enable write permission
 module_param_array(enabled, bool, NULL, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(enabled_device, "Module parameter implemented in order to enable or disable a device with a specific \
 minor number. If it is disabled, any attempt to open a session should fail, except for already opened sessions.");
@@ -24,23 +24,23 @@ MODULE_PARM_DESC(hp_threads, "Number of threads currently in wait on low and hig
 
 /* Global variables */
 static int major;
-object_t devices[MINOR_NUMBER];
+device_manager_t devices[MINOR_NUMBER];
 long booked_byte[MINOR_NUMBER] = {[0 ... (MINOR_NUMBER-1)] = 0};
+
+/* Signaling for asynchronous notification */
+struct kernel_siginfo info;
+static int signum = 0;
 
 /* Function prototypes */
 int init_module(void);
 void cleanup_module(void);
 static int device_open(struct inode *, struct file *);
 static int device_release(struct inode *, struct file *);
+static ssize_t device_ioctl(struct file *, unsigned int, unsigned long);
 static ssize_t device_read(struct file *, char *, size_t, loff_t *);
 static ssize_t device_write(struct file *, const char *, size_t, loff_t *);
-static ssize_t device_ioctl(struct file *, unsigned int, unsigned long);
-int setup_operation(device_manager_t *, session_t *, int, char *);
+int setup_operation(flow_manager_t *, session_t *, int, char *);
 void async_write(struct delayed_work *);
-
-/* Signaling for asynchronous notification */
-struct kernel_siginfo info;
-static int signum = 0;
 
 /* Driver operations
 *  Each field corresponds to the address of some function defined by the driver to handle a requested operation:
@@ -68,14 +68,14 @@ static struct file_operations fops = {
 static int device_open(struct inode *inode, struct file *filp) {
         session_t *session;
         int minor = get_minor(filp);
-        if (minor >= MINOR_NUMBER) return -ENODEV;
+        if (minor < 0 && minor >= MINOR_NUMBER) return -ENODEV;
         if (!enabled[minor]) return -EBUSY;
-        pr_info("Session opened for minor: %d\n", minor);
         session = kmalloc(sizeof(session_t), GFP_KERNEL);
         session->priority = HIGH_PRIORITY;
         session->flags = GFP_KERNEL;
         session->timeout = MAX_SECONDS;
         filp->private_data = session;
+        pr_info("Session opened for minor: %d\n", minor);
         return 0;
 }
 
@@ -86,9 +86,9 @@ static int device_open(struct inode *inode, struct file *filp) {
  */
 static int device_release(struct inode *inode, struct file *filp) {
         int minor = get_minor(filp);
-        pr_info("Session closed for minor: %d\n", minor);
         kfree(filp->private_data);
         filp->private_data = NULL;
+        pr_info("Session closed for minor: %d\n", minor);
         return 0;
 }
 
@@ -123,6 +123,14 @@ static ssize_t device_ioctl(struct file *filp, unsigned int command, unsigned lo
                 session->timeout = get_seconds(param);
                 pr_info("Setup of timeout for blocking operations to %ld sec for minor: %d\n", session->timeout, minor);
                 break;
+        case ENABLE:
+                enabled[minor] = true;
+                pr_info("Device with minor: %d has been enabled\n", minor);
+                break;
+        case DISABLE:
+                enabled[minor] = false;
+                pr_info("Device with minor: %d has been disabled\n", minor);
+                break;
         default:
                 return -ENOTTY;
         }
@@ -145,15 +153,15 @@ static ssize_t device_read(struct file *filp, char *buff, size_t len, loff_t *of
         char *tmp_buf;
         char *final;
         ssize_t valid;
-        object_t *obj;
+        device_manager_t *device;
         session_t *session;
-        device_manager_t *manager;
+        flow_manager_t *flow;
 
         // retrieve the obj related to the minor and the manager related to the priority of the session of the thread
         minor = get_minor(filp);
-        obj = devices + minor;
+        device = devices + minor;
         session = (session_t *)filp->private_data;
-        manager = obj->manager[session->priority];
+        flow = device->flow[session->priority];
 
         pr_info("Read operation called for minor: %d\n", minor);
         if (len <= 0) return 0;
@@ -161,16 +169,16 @@ static ssize_t device_read(struct file *filp, char *buff, size_t len, loff_t *of
         tmp_buf = kmalloc(len, session->flags);
 
         // setup for blocking or non-blocking operation
-        res = setup_operation(manager, session, minor, "read");
+        res = setup_operation(flow, session, minor, "read");
         if (!res) { goto free_area; } //else we have the lock
         
         pr_info("Start effective read.\n");
 
         if(len > byte_to_read(session->priority,minor)) len = byte_to_read(session->priority,minor);
-        read_device_buffer(manager, tmp_buf, len);
+        read_from_flow(flow, tmp_buf, len);
         sub_to_buffer(session->priority,minor,len);
-        wake_up_interruptible(&(manager->waitqueue));
-        mutex_unlock(&(manager->op_mutex));
+        wake_up_interruptible(&(flow->waitqueue));
+        mutex_unlock(&(flow->op_mutex));
         
         // copy data to read on a buffer, from kernel to user space returns # of bytes that could not be copied  
         res = copy_to_user(buff,tmp_buf,len);
@@ -202,17 +210,17 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
         int byte_not_copied;
         int minor;
         char *tmp_buf;
-        object_t *obj;
+        device_manager_t *device;
         session_t *session;
-        device_manager_t *manager;
+        flow_manager_t *flow;
         data_segment_t *to_write;
         async_task_t *task;
 
         // retrieve the obj related to the minor and the manager related to the priority of the session
         minor = get_minor(filp);
-        obj = devices + minor;
+        device = devices + minor;
         session = (session_t *)filp->private_data;
-        manager = obj->manager[session->priority];
+        flow = device->flow[session->priority];
         task = NULL;
 
         pr_info("Write operation called for minor: %d\n", minor);
@@ -226,7 +234,7 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
         to_write = kmalloc(sizeof(data_segment_t), session->flags);
 
         // setup for blocking or non-blocking operation
-        res = setup_operation(manager, session, minor, "write");
+        res = setup_operation(flow, session, minor, "write");
         if (!res) { goto free_area; } //else we have the lock
         
         pr_info("Start effective write.\n");
@@ -238,17 +246,17 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
         // check if data segment must be write in a synchronous way
         if (session->priority == HIGH_PRIORITY) {
                 pr_info("The selected operation is required at high priority.\n");
-                write_device_buffer(manager, to_write);
+                write_data_segment(flow, to_write);
                 add_to_buffer(HIGH_PRIORITY, minor, len);
-                wake_up_interruptible(&(manager->waitqueue));
-                mutex_unlock(&(obj->manager[session->priority]->op_mutex));
+                wake_up_interruptible(&(flow->waitqueue));
+                mutex_unlock(&(device->flow[session->priority]->op_mutex));
                 pr_info("Operation completed, bytes writed to the device at high priority: %s\n", tmp_buf);
         } 
         else {
                 pr_info("The selected operation is required at low priority.\n");
                 if(!try_module_get(THIS_MODULE)) {
-                        wake_up_interruptible(&(manager->waitqueue));
-                        mutex_unlock(&(manager->op_mutex));
+                        wake_up_interruptible(&(flow->waitqueue));
+                        mutex_unlock(&(flow->op_mutex));
                         res = -ENODEV;
                         goto free_area;
                 }
@@ -258,7 +266,7 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
                 task->minor = minor;
                 
                 // save PID for signalling
-                task->proc = get_current(); 
+                task->thread = get_current(); 
                 signum = SIGETX;       
 
                 // initialize an already declared delayed_work item with a deffered write handler
@@ -266,7 +274,7 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
                 INIT_DELAYED_WORK(&(task->del_work), (void *)async_write);
                 add_booked_byte(minor,len);
                 // insert the async task in the workqueue associated to the device after a delay of 5sec
-                queue_delayed_work(obj->workqueue, &(task->del_work), msecs_to_jiffies(5000));
+                queue_delayed_work(device->workqueue, &(task->del_work), msecs_to_jiffies(5000));
         }
         return len;
 
@@ -288,7 +296,7 @@ free_area:      kfree(tmp_buf);
  *  - 1 if the operation is completed successfully (lock acquired and condition checked for read/write),
  *  - 0 or a specific error otherwise.
  */
-int setup_operation(device_manager_t *manager, session_t *session, int minor, char *type) {
+int setup_operation(flow_manager_t *flow, session_t *session, int minor, char *type) {
         int res;
         if (strcmp(type, "read") != 0 && strcmp(type, "write") != 0) { return 0; }
 
@@ -301,13 +309,13 @@ int setup_operation(device_manager_t *manager, session_t *session, int minor, ch
                 pr_info("Thread goes in wait...\n");
                 // BLOCKING READ: wait until there are bytes to read to take the lock
                 if (strcmp(type, "read") == 0) { 
-                        res = custom_wait(manager->waitqueue, lock_and_awake(
-                                byte_to_read(session->priority,minor) > 0, &(manager->op_mutex)), msecs_to_jiffies(session->timeout*1000)); 
+                        res = custom_wait(flow->waitqueue, lock_and_awake(
+                                byte_to_read(session->priority,minor) > 0, &(flow->op_mutex)), msecs_to_jiffies(session->timeout*1000)); 
                 }
                 // BLOCKING WRITE: wait until there is space to write to take the lock
                 if (strcmp(type, "write") == 0) { 
-                        res = custom_wait(manager->waitqueue, lock_and_awake(
-                                is_free(session->priority,minor), &(manager->op_mutex)), msecs_to_jiffies(session->timeout*1000)); 
+                        res = custom_wait(flow->waitqueue, lock_and_awake(
+                                is_free(session->priority,minor), &(flow->op_mutex)), msecs_to_jiffies(session->timeout*1000)); 
                 }
                 dec_thread_in_wait(session->priority, minor);
                 pr_info("Decreased number of threads in wait (-1).\n");
@@ -319,7 +327,7 @@ int setup_operation(device_manager_t *manager, session_t *session, int minor, ch
         else {
                 // check if token is available
                 pr_info("The selected operation is of non-blocking type.\n");
-                if (!mutex_trylock(&(manager->op_mutex))) {
+                if (!mutex_trylock(&(flow->op_mutex))) {
                         pr_info("Operation aborted: Token already in use by another thread.\n");
                         return -EBUSY;
                 }
@@ -328,8 +336,8 @@ int setup_operation(device_manager_t *manager, session_t *session, int minor, ch
                         // check if data to read are available
                         if (is_empty(session->priority,minor)) {
                                 pr_info("Operation aborted: Token acquired but the buffer is empty, no data to be read.\n");
-                                wake_up_interruptible(&(manager->waitqueue));
-                                mutex_unlock(&(manager->op_mutex));
+                                wake_up_interruptible(&(flow->waitqueue));
+                                mutex_unlock(&(flow->op_mutex));
                                 return 0;
                         }
                 }
@@ -338,8 +346,8 @@ int setup_operation(device_manager_t *manager, session_t *session, int minor, ch
                         // check if data can be writed
                         if (is_free(session->priority,minor)) {
                                 pr_info("Operation aborted: Token acquired but the buffer is full, no data can be writed.\n");
-                                wake_up_interruptible(&(manager->waitqueue));
-                                mutex_unlock(&(manager->op_mutex));
+                                wake_up_interruptible(&(flow->waitqueue));
+                                mutex_unlock(&(flow->op_mutex));
                                 return 0;
                         }
                 }
@@ -356,17 +364,17 @@ int setup_operation(device_manager_t *manager, session_t *session, int minor, ch
 void async_write(struct delayed_work *data) {
         // we retrieve the async_task_t struct address using the member delayed_work address, data points to del_work
         async_task_t *task = container_of((void*)data, async_task_t, del_work);
-        object_t *object = devices + task->minor;
-        device_manager_t *manager = object->manager[LOW_PRIORITY];
+        device_manager_t *device = devices + task->minor;
+        flow_manager_t *flow = device->flow[LOW_PRIORITY];
         
-        write_device_buffer(object->manager[LOW_PRIORITY], task->to_write);
+        write_data_segment(device->flow[LOW_PRIORITY], task->to_write);
         sub_booked_byte(task->minor,task->to_write->size);
         add_to_buffer(LOW_PRIORITY, task->minor, task->to_write->size);
         pr_info("Operation completed, bytes writed to the device at low priority: %s\n", task->to_write->content);
         
         // release token acquired in setup_operation
-        wake_up_interruptible(&(object->manager[LOW_PRIORITY]->waitqueue));
-        mutex_unlock(&(manager->op_mutex));
+        wake_up_interruptible(&(device->flow[LOW_PRIORITY]->waitqueue));
+        mutex_unlock(&(flow->op_mutex));
         kfree(container_of((void*)data, async_task_t, del_work));
         module_put(THIS_MODULE);
 
@@ -377,7 +385,7 @@ void async_write(struct delayed_work *data) {
         info.si_int = 1;
 
         pr_info("Sending signal to app...\n");
-        if(send_sig_info(SIGETX, &info, task->proc) < 0) { pr_info("Unable to send signal\n"); }
+        if(send_sig_info(SIGETX, &info, task->thread) < 0) { pr_info("Unable to send signal\n"); }
         pr_info("Send!\n");
 }
 
@@ -401,17 +409,17 @@ int init_module(void) {
         for (i = 0; i < MINOR_NUMBER; i++) {
                 // a workqueue and two managers, one for each priority flow of the specific device
                 devices[i].workqueue = create_singlethread_workqueue("work-queue-" + i);
-                devices[i].manager[LOW_PRIORITY] = kmalloc(sizeof(device_manager_t), GFP_KERNEL);
-                devices[i].manager[HIGH_PRIORITY] = kmalloc(sizeof(device_manager_t), GFP_KERNEL);
-                init_device_manager(devices[i].manager[LOW_PRIORITY]);
-                init_device_manager(devices[i].manager[HIGH_PRIORITY]);
+                devices[i].flow[LOW_PRIORITY] = kmalloc(sizeof(flow_manager_t), GFP_KERNEL);
+                devices[i].flow[HIGH_PRIORITY] = kmalloc(sizeof(flow_manager_t), GFP_KERNEL);
+                init_flow_manager(devices[i].flow[LOW_PRIORITY]);
+                init_flow_manager(devices[i].flow[HIGH_PRIORITY]);
         }
         // check errors in previous allocations
         if (i < MINOR_NUMBER) {
                 for (; i > -1; i--) {
                         destroy_workqueue(devices[i].workqueue);
-                        free_device_buffer(devices[i].manager[LOW_PRIORITY]);
-                        free_device_buffer(devices[i].manager[HIGH_PRIORITY]);
+                        free_flow(devices[i].flow[LOW_PRIORITY]);
+                        free_flow(devices[i].flow[HIGH_PRIORITY]);
                 }
                 return -ENOMEM;
         }
@@ -431,8 +439,8 @@ void cleanup_module(void) {
         // deallocation of structures
         for (i = 0; i < MINOR_NUMBER; i++) {
                 destroy_workqueue(devices[i].workqueue);
-                free_device_buffer(devices[i].manager[LOW_PRIORITY]);
-                free_device_buffer(devices[i].manager[HIGH_PRIORITY]);
+                free_flow(devices[i].flow[LOW_PRIORITY]);
+                free_flow(devices[i].flow[HIGH_PRIORITY]);
         }
 }
 

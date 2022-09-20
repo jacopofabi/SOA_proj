@@ -80,39 +80,44 @@ int main(int argc, char** argv) {
                 case TO_HIGH_PRIORITY:
                         priority = 1;
                         out_ioctl = set_high_priority(fd);
-                        if (out_ioctl == -1) printf("Error high priority\n");
+                        if (out_ioctl == -1) printf("Error setting high priority\n");
                         else printf("Switched to high priority\n");
                         break;
-
                 case TO_LOW_PRIORITY:
                         priority = 0;
                         out_ioctl = set_low_priority(fd);
-                        if (out_ioctl == -1) printf("Error low priority\n");
+                        if (out_ioctl == -1) printf("Error setting low priority\n");
                         else printf("Switched to low priority\n");
                         break;
-
                 case BLOCKING:
                         out_ioctl = set_blocking_operations(fd);
-                        if (out_ioctl == -1) printf("Error blocking operations\n");
+                        if (out_ioctl == -1) printf("Error setting blocking operations\n");
                         else printf("Switched to blocking operations\n");
                         break;
-
                 case UNBLOCKING:
                         out_ioctl = set_unblocking_operations(fd);
-                        if (out_ioctl == -1) printf("Error non-blocking operations\n");
+                        if (out_ioctl == -1) printf("Error setting non-blocking operations\n");
                         else printf("Switched to non-blocking operations\n");
                         break;
-
                 case TIMEOUT:
                         printf("Inserisci il valore del timeout: ");
                         do {
                                 scanf("%ld", &timeout);
                         } while (timeout < 1);
                         out_ioctl = set_timeout(fd, timeout);
-                        if (out_ioctl == -1) printf("Error timeout\n");
+                        if (out_ioctl == -1) printf("Error setting timeout\n");
                         else printf("Update awake timeout for blocking operations\n");
                         break;
-
+                case ENABLE:
+                        out_ioctl = enable_device(fd);
+                        if (out_ioctl == -1) printf("Error enabling device\n");
+                        else printf("Device enabled\n");
+                        break;
+                case DISABLE:
+                        out_ioctl = disable_device(fd);
+                        if (out_ioctl == -1) printf("Error disabling device\n");
+                        else printf("Device disabled\n");
+                        break;
                 case WRITE:
                         printf("Inserisci testo da scrivere: ");
                         scanf("%s", buf);
@@ -127,7 +132,6 @@ int main(int argc, char** argv) {
                                 printf("%d bytes are correctly written to device %s\n", res, device_path);
                         }
                         break;
-
                 case READ:
                         printf("Inserisci quanti byte vuoi leggere: ");
                         scanf("%d", &offset);
@@ -135,11 +139,9 @@ int main(int argc, char** argv) {
                         if (res == -1) printf("Error on read operation (%s)\n", strerror(errno));
                         else printf("%d bytes are correctly read from device %s\n", res, device_path);
                         break;
-
                 case RELEASE:
                         device_release(fd);
                         return 0;
-                        
                 default: 
                         printf("Operazione non disponibile\n\n");
                 }

@@ -35,6 +35,8 @@
 #define BLOCKING 5
 #define UNBLOCKING 6
 #define TIMEOUT 7
+#define ENABLE 8
+#define DISABLE 9
 
 /* BOUNDS */
 #define MIN_SECONDS 1                                    // minimum amount of seconds for timeout
@@ -62,16 +64,16 @@ typedef struct session {
 
 /** 
  * Object that handles mutex, waitqueue and buffer of data segments related to a priority flow of a specific minor
- * device_manager_t - Device manager
+ * flow_manager_t - Manager of a priority flow
  * @head:       head of linked list
  * @op_mutex:   mutex to synchronize operations in buffer
  * @waitqueue:  waitqueue for the specific minor
  */
-typedef struct device_manager {
+typedef struct flow_manager {
         struct list_head head;
         struct mutex op_mutex;
         wait_queue_head_t waitqueue;
-} device_manager_t;
+} flow_manager_t;
 
 /** 
  * Single data segment of a linked list that represents a buffer, related to a priority flow of a specific minor
@@ -90,37 +92,37 @@ typedef struct data_segment {
 
 /** 
  * Object that handles device manager for the two priority flows and a workqueue for a specific minor
- * object_t - I/O object
+ * device_manager_t - Manager of a device file
  * @workqueue:  pointer to workqueue for low priority flow
  * @buffer:     device manager for low and high priority
  */
-typedef struct object {
+typedef struct device_manager {
         struct workqueue_struct *workqueue;
-        device_manager_t *manager[FLOWS];
-} object_t;
+        flow_manager_t *flow[FLOWS];
+} device_manager_t;
 
 /**
  * async_task_t - deffered work
  * @del_work:           delayed_work struct uses a timer to run after the specified time interval
- * @to_write:           byte to write
+ * @to_write:           pointer to data segment to write
  * @minor:              minor number of the device
- * @proc:               process that has requested the deferred work
+ * @thread:             thread that has requested the deferred work
  */
 typedef struct async_task {
         struct delayed_work del_work;
         data_segment_t *to_write;
         int minor;
-        struct task_struct *proc;
+        struct task_struct *thread;
 } async_task_t;
 
 
-/* DEVICE MANAGER FUNCTION PROTOTYPES */
-void init_device_manager(device_manager_t *);
+/* FLOW MANAGER FUNCTION PROTOTYPES */
+void init_flow_manager(flow_manager_t *);
 void init_data_segment(data_segment_t *, char *, int);
-void free_device_buffer(device_manager_t *);
+void write_data_segment(flow_manager_t *, data_segment_t *);
+void read_from_flow(flow_manager_t *, char *, int);
 void free_data_segment(data_segment_t *);
-void write_device_buffer(device_manager_t *, data_segment_t *);
-void read_device_buffer(device_manager_t *, char *, int);
+void free_flow(flow_manager_t *);
 
 
 /* MACROS DEFINITION */
@@ -133,8 +135,8 @@ void read_device_buffer(device_manager_t *, char *, int);
 #endif
 
 // we avoid check on priority with a simple operation using a single vector for bytes_in_buffer and threads_in_wait parameters
-// priority low = 0 --> refers to buffers/threads from 0 to 128 (buffers/threads with low priority)
-// priority high = 1 --> refers to buffers/threads from 129 to 256 (buffers/threads with high priority)
+// priority low = 0 --> refers to buffers/threads from 0 to 127 (buffers/threads with low priority)
+// priority high = 1 --> refers to buffers/threads from 128 to 255 (buffers/threads with high priority)
 #define get_buffer_index(priority, minor) ((priority * MINOR_NUMBER) + minor)
 #define get_thread_index(priority, minor) ((priority * MINOR_NUMBER) + minor)
 #define byte_to_read(priority, minor) bytes_in_buffer[get_buffer_index(priority, minor)]
