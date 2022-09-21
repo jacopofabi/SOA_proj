@@ -10,7 +10,7 @@ fi
 # if minor number is less than 0 or greater than 127, exit
 if [ $1 -lt 0 -o $1 -gt 127 ]
 then
-	echo "The minor must be a number between 0 to 127."
+	echo "The minor must be a number between 0 to 127.\n"
 	exit 1
 fi
 

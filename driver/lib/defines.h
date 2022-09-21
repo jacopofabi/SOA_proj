@@ -41,7 +41,7 @@
 /* BOUNDS */
 #define MIN_SECONDS 1                                    // minimum amount of seconds for timeout
 #define MAX_SECONDS 3600                                 // maximum amount of seconds for timeout
-#define MAX_BYTE_IN_BUFFER 32 * 4096                     // maximum number of byte in buffer
+#define MAX_BYTE_IN_BUFFER 32 * 4096                     // maximum number of byte in buffer: 5096 * sizeof(data_segment_t)
 
 /* Signal for async notification */
 #define SIGETX    44
@@ -154,8 +154,6 @@ void free_flow(flow_manager_t *);
 #define inc_thread_in_wait(priority, minor) __sync_fetch_and_add(threads_in_wait + get_thread_index(priority, minor), 1)
 #define dec_thread_in_wait(priority, minor) __sync_fetch_and_sub(threads_in_wait + get_thread_index(priority, minor), 1)
 
-#define custom_wait wait_event_interruptible_exclusive_timeout
-
 /**
  * This macro allow to put in waitqueue a task in exclusive mode and set a timeout.
  * The call to ___wait_event() is the same used in __wait_event_interruptible_timeout() 
@@ -175,7 +173,7 @@ void free_flow(flow_manager_t *);
  * This macro is equal to existing wait_event_interruptible_timeout with exclusive mode enabled.
  * We change __wait_event_interruptible_exclusive_timeout instead of __wait_event_interruptible_timeout.
  * 
- * The process goes to sleep until the @condition evaluates to true or a signal is received.
+ * The process goes to sleep until the @condition evaluates to true or a timeout elapses.
  * The @condition is checked each time the waitqueue @wq_head is woken up.
  *
  * wait_event_interruptible_exclusive_timeout

@@ -48,7 +48,7 @@ void read_from_flow(flow_manager_t *flow, char *read_content, int len) {
 
         head = &(flow->head);
         cur = head->next;
-        cur_seg = list_entry(cur, struct data_segment, list);
+        cur_seg = list_entry(cur, data_segment_t, list);
         byte_read = 0;
 
         // read data from one or more data segments
@@ -62,12 +62,12 @@ void read_from_flow(flow_manager_t *flow, char *read_content, int len) {
 
                 if (cur == head) break;
 
-                cur_seg = list_entry(cur, struct data_segment, list);
+                cur_seg = list_entry(cur, data_segment_t, list);
         }
 
         // check if i must read in this condition: byte_to_read < cur->size
         if (cur != head) {
-                cur_seg = list_entry(cur, struct data_segment, list);
+                cur_seg = list_entry(cur, data_segment_t, list);
                 memcpy(read_content + byte_read, cur_seg->content + cur_seg->byte_read, len - byte_read);
                 cur_seg->byte_read += len - byte_read;
                 byte_read += len - byte_read;
@@ -82,7 +82,7 @@ void free_data_segment(data_segment_t *segment) {
         kfree(segment->content);
         kfree(segment);
         return;
-}flow
+}
 
 /**
  * free_flow - release memory of the flow

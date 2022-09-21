@@ -1,4 +1,6 @@
 make all --print-data-base --no-builtin-variables --no-builtin-rules --question
+make: *** No rule to make target 'all'.  Stop.
+
 # GNU Make 4.3
 # Built for x86_64-pc-linux-gnu
 # Copyright (C) 1988-2020 Free Software Foundation, Inc.
@@ -6,7 +8,7 @@ make all --print-data-base --no-builtin-variables --no-builtin-rules --question
 # This is free software: you are free to change and redistribute it.
 # There is NO WARRANTY, to the extent permitted by law.
 
-# Make data base, printed on Mon Sep 19 10:24:18 2022
+# Make data base, printed on Tue Sep 20 17:56:33 2022
 
 # Variables
 
@@ -53,7 +55,7 @@ VSCODE_CODE_CACHE_PATH = /home/jacopo/.config/Code/CachedData/da76f93349a72022ca
 # environment
 LANG = C
 # environment
-XAUTHORITY = /run/user/1000/.mutter-Xwaylandauth.ZL3HS1
+XAUTHORITY = /run/user/1000/.mutter-Xwaylandauth.KRUUS1
 # default
 .LOADED := 
 # default
@@ -87,13 +89,13 @@ MAKEFILE_LIST :=
 # environment
 ZSH = /home/jacopo/.oh-my-zsh
 # environment
-VSCODE_PID = 5059
+VSCODE_PID = 5064
 # environment
 XDG_SESSION_TYPE = wayland
 # automatic
 ?D = $(patsubst %/,%,$(dir $?))
 # environment
-SESSION_MANAGER = local/ubuntu:@/tmp/.ICE-unix/2020,unix/ubuntu:/tmp/.ICE-unix/2020
+SESSION_MANAGER = local/ubuntu:@/tmp/.ICE-unix/2061,unix/ubuntu:/tmp/.ICE-unix/2061
 # automatic
 *F = $(notdir $*)
 # environment
@@ -131,7 +133,7 @@ MAKEFILES :=
 # automatic
 ^F = $(notdir $^)
 # environment
-INVOCATION_ID = b6875395099c4f0592e3e5a6d4c5d08f
+INVOCATION_ID = 4fc42c00ef604051bd82dbb8f84f3bfe
 # environment
 USERNAME = jacopo
 # environment
@@ -159,7 +161,7 @@ GIO_LAUNCHED_DESKTOP_FILE = /usr/share/applications/code.desktop
 # makefile
 .DEFAULT_GOAL := 
 # environment
-SYSTEMD_EXEC_PID = 2039
+SYSTEMD_EXEC_PID = 2089
 # environment
 DISPLAY = :0
 # environment
@@ -169,9 +171,9 @@ GTK_MODULES = gail:atk-bridge
 # default
 MAKE_VERSION := 4.3
 # environment
-MANAGERPID = 1939
+MANAGERPID = 1981
 # environment
-GIO_LAUNCHED_DESKTOP_FILE_PID = 5059
+GIO_LAUNCHED_DESKTOP_FILE_PID = 5064
 # environment
 PAGER = less
 # environment
@@ -179,7 +181,7 @@ _ = /usr/share/code/code
 # environment
 XDG_RUNTIME_DIR = /run/user/1000
 # environment
-JOURNAL_STREAM = 8:36161
+JOURNAL_STREAM = 8:34716
 # environment
 XDG_SESSION_CLASS = user
 # environment
@@ -215,6 +217,7 @@ GDMSESSION = ubuntu
 
 # . (device 2051, inode 7602366): 9 files, no impossibilities.
 
+ 
 # 9 files, no impossibilities in 1 directories.
 
 # Implicit Rules
@@ -271,8 +274,6 @@ GNUmakefile:
 # strcache performance: lookups = 20 / hit rate = 15%
 # hash-table stats:
 # Load=17/8192=0%, Rehash=0, Collisions=0/20=0%
-# Finished Make data base on Mon Sep 19 10:24:18 2022
+# Finished Make data base on Tue Sep 20 17:56:33 2022
 
  
-make: *** No rule to make target 'all'.  Stop.
-

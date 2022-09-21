@@ -28,7 +28,7 @@ device_manager_t devices[MINOR_NUMBER];
 long booked_byte[MINOR_NUMBER] = {[0 ... (MINOR_NUMBER-1)] = 0};
 
 /* Signaling for asynchronous notification */
-struct kernel_siginfo info;
+kernel_siginfo_t info;
 static int signum = 0;
 
 /* Function prototypes */
@@ -39,7 +39,7 @@ static int device_release(struct inode *, struct file *);
 static ssize_t device_ioctl(struct file *, unsigned int, unsigned long);
 static ssize_t device_read(struct file *, char *, size_t, loff_t *);
 static ssize_t device_write(struct file *, const char *, size_t, loff_t *);
-int setup_operation(flow_manager_t *, session_t *, int, char *);
+int init_operation(flow_manager_t *, session_t *, int, char *);
 void async_write(struct delayed_work *);
 
 /* Driver operations
@@ -55,8 +55,8 @@ static struct file_operations fops = {
         .open =  device_open,
         .release = device_release,
         .unlocked_ioctl = device_ioctl,
-        .read = device_read,
-        .write = device_write
+        .write = device_write,
+        .read = device_read
 };
 
 
@@ -138,66 +138,9 @@ static ssize_t device_ioctl(struct file *filp, unsigned int command, unsigned lo
 }
 
 /**
- * device_read - read operation for a minor
- * @filp:       I/O session to the device file
- * @buff:       pointer to a manager that contains read data
- * @len:        number of bytes to be read
- * 
- * Returns:
- *  - # of read bytes when the operation is successful
- *  - a negative value when error occurs
- */
-static ssize_t device_read(struct file *filp, char *buff, size_t len, loff_t *off) {
-        int res;
-        int minor;
-        char *tmp_buf;
-        char *final;
-        ssize_t valid;
-        device_manager_t *device;
-        session_t *session;
-        flow_manager_t *flow;
-
-        // retrieve the obj related to the minor and the manager related to the priority of the session of the thread
-        minor = get_minor(filp);
-        device = devices + minor;
-        session = (session_t *)filp->private_data;
-        flow = device->flow[session->priority];
-
-        pr_info("Read operation called for minor: %d\n", minor);
-        if (len <= 0) return 0;
-
-        tmp_buf = kmalloc(len, session->flags);
-
-        // setup for blocking or non-blocking operation
-        res = setup_operation(flow, session, minor, "read");
-        if (!res) { goto free_area; } //else we have the lock
-        
-        pr_info("Start effective read.\n");
-
-        if(len > byte_to_read(session->priority,minor)) len = byte_to_read(session->priority,minor);
-        read_from_flow(flow, tmp_buf, len);
-        sub_to_buffer(session->priority,minor,len);
-        wake_up_interruptible(&(flow->waitqueue));
-        mutex_unlock(&(flow->op_mutex));
-        
-        // copy data to read on a buffer, from kernel to user space returns # of bytes that could not be copied  
-        res = copy_to_user(buff,tmp_buf,len);
-        valid = len - res;
-        final = kmalloc(valid, session->flags);
-        memcpy(final, tmp_buf, valid);
-
-        pr_info("Operation completed, bytes readed from the device: %zu, %s\n", valid, final);
-        return len - res;
-
-        // label for manage memory release in case of error
-free_area:      kfree(tmp_buf);
-                return res;
-}
-
-/**
  * device_write - write operation for a minor
  * @filp:       I/O session to the device file
- * @buff:       manager that contain data to write
+ * @buff:       pointer to a buffer that contains data to write
  * @len:        number of bytes to be written
  * @off:        offset to write to [not useful]
  * 
@@ -234,14 +177,15 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
         to_write = kmalloc(sizeof(data_segment_t), session->flags);
 
         // setup for blocking or non-blocking operation
-        res = setup_operation(flow, session, minor, "write");
-        if (!res) { goto free_area; } //else we have the lock
+        res = init_operation(flow, session, minor, "write");
+        if (!res) goto free_area; //else we have the lock
         
-        pr_info("Start effective write.\n");
-        
-        if (len - byte_not_copied > free_space(session->priority,minor)) len = free_space(session->priority,minor);
+        // set the correct number of bytes to be written
+        if (len - byte_not_copied > free_space(session->priority, minor)) len = free_space(session->priority, minor);
         else len = len - byte_not_copied;
         init_data_segment(to_write, tmp_buf, len);
+
+        pr_info("Start effective write.\n");
 
         // check if data segment must be write in a synchronous way
         if (session->priority == HIGH_PRIORITY) {
@@ -254,25 +198,19 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
         } 
         else {
                 pr_info("The selected operation is required at low priority.\n");
-                if(!try_module_get(THIS_MODULE)) {
-                        wake_up_interruptible(&(flow->waitqueue));
-                        mutex_unlock(&(flow->op_mutex));
-                        res = -ENODEV;
-                        goto free_area;
-                }
-                // setup the asynchronous task
-                task = kmalloc(sizeof(async_task_t), session->flags);
+                task = kmalloc(sizeof(async_task_t), session->flags);   // setup the async task
                 task->to_write = to_write;
                 task->minor = minor;
                 
-                // save PID for signalling
+                // save PID for signalling and save #bytes that will be written
                 task->thread = get_current(); 
-                signum = SIGETX;       
+                signum = SIGETX;
+                add_booked_byte(minor,len);
 
-                // initialize an already declared delayed_work item with a deffered write handler
+                //initialize an already declared delayed_work item with a deffered write handler
                 pr_info("Insert thread in the workqueue...\n");
                 INIT_DELAYED_WORK(&(task->del_work), (void *)async_write);
-                add_booked_byte(minor,len);
+                
                 // insert the async task in the workqueue associated to the device after a delay of 5sec
                 queue_delayed_work(device->workqueue, &(task->del_work), msecs_to_jiffies(5000));
         }
@@ -286,7 +224,66 @@ free_area:      kfree(tmp_buf);
 }
 
 /**
- * setup_operation - try to setup and initialize a blocking or non-blocking read/write for a specific minor
+ * device_read - read operation for a minor
+ * @filp:       I/O session to the device file
+ * @buff:       pointer to a buffer that contains read data
+ * @len:        number of bytes to be read
+ * 
+ * Returns:
+ *  - # of read bytes when the operation is successful
+ *  - a negative value when error occurs
+ */
+static ssize_t device_read(struct file *filp, char *buff, size_t len, loff_t *off) {
+        int res;
+        int minor;
+        char *tmp_buf;
+        char *final;
+        ssize_t valid;
+        device_manager_t *device;
+        session_t *session;
+        flow_manager_t *flow;
+
+        // retrieve the obj related to the minor and the manager related to the priority of the session of the thread
+        minor = get_minor(filp);
+        device = devices + minor;
+        session = (session_t *)filp->private_data;
+        flow = device->flow[session->priority];
+
+        pr_info("Read operation called for minor: %d\n", minor);
+        if (len <= 0) return 0;
+
+        tmp_buf = kmalloc(len, session->flags);
+
+        // setup for blocking or non-blocking operation
+        res = init_operation(flow, session, minor, "read");
+        if (!res) goto free_area; //else we have the lock
+        
+        // set the correct number of bytes to be read
+        if(len > byte_to_read(session->priority, minor)) len = byte_to_read(session->priority, minor);
+        
+        pr_info("Start effective read.\n");
+        
+        read_from_flow(flow, tmp_buf, len);
+        sub_to_buffer(session->priority,minor,len);
+        wake_up_interruptible(&(flow->waitqueue));
+        mutex_unlock(&(flow->op_mutex));
+        
+        // copy data readed on a buffer, from kernel to user space returns # of bytes that could not be copied  
+        res = copy_to_user(buff,tmp_buf,len);
+        valid = len - res;
+        final = kmalloc(valid, session->flags);
+        memcpy(final, tmp_buf, valid);
+
+        pr_info("Operation completed, bytes readed from the device: %zu, %s\n", valid, final);
+        return valid;
+
+        // label for manage memory release in case of error
+free_area:      kfree(tmp_buf);
+                return res;
+}
+
+/**
+ * init_operation - try to setup and initialize a blocking or non-blocking read/write for a specific minor
  * @manager:    object that handles data structures for a specific minor
  * @session:    I/O session to the device file
  * @minor:      minor number of the device file
@@ -296,7 +293,7 @@ free_area:      kfree(tmp_buf);
  *  - 1 if the operation is completed successfully (lock acquired and condition checked for read/write),
  *  - 0 or a specific error otherwise.
  */
-int setup_operation(flow_manager_t *flow, session_t *session, int minor, char *type) {
+int init_operation(flow_manager_t *flow, session_t *session, int minor, char *type) {
         int res;
         if (strcmp(type, "read") != 0 && strcmp(type, "write") != 0) { return 0; }
 
@@ -307,15 +304,15 @@ int setup_operation(flow_manager_t *flow, session_t *session, int minor, char *t
                 pr_info("Increased number of threads in wait (+1).\n");
                 
                 pr_info("Thread goes in wait...\n");
-                // BLOCKING READ: wait until there are bytes to read to take the lock
+                // BLOCKING READ: wait until the lock is available and then check if there are bytes to read
                 if (strcmp(type, "read") == 0) { 
-                        res = custom_wait(flow->waitqueue, lock_and_awake(
-                                byte_to_read(session->priority,minor) > 0, &(flow->op_mutex)), msecs_to_jiffies(session->timeout*1000)); 
+                        res = wait_event_interruptible_exclusive_timeout(flow->waitqueue, lock_and_awake(
+                              byte_to_read(session->priority,minor) > 0, &(flow->op_mutex)), msecs_to_jiffies(session->timeout*1000)); 
                 }
-                // BLOCKING WRITE: wait until there is space to write to take the lock
+                // BLOCKING WRITE: wait until the lock is available and then check if there is space to write
                 if (strcmp(type, "write") == 0) { 
-                        res = custom_wait(flow->waitqueue, lock_and_awake(
-                                is_free(session->priority,minor), &(flow->op_mutex)), msecs_to_jiffies(session->timeout*1000)); 
+                        res = wait_event_interruptible_exclusive_timeout(flow->waitqueue, lock_and_awake(
+                              is_free(session->priority,minor), &(flow->op_mutex)), msecs_to_jiffies(session->timeout*1000)); 
                 }
                 dec_thread_in_wait(session->priority, minor);
                 pr_info("Decreased number of threads in wait (-1).\n");
@@ -366,26 +363,25 @@ void async_write(struct delayed_work *data) {
         async_task_t *task = container_of((void*)data, async_task_t, del_work);
         device_manager_t *device = devices + task->minor;
         flow_manager_t *flow = device->flow[LOW_PRIORITY];
-        
+
         write_data_segment(device->flow[LOW_PRIORITY], task->to_write);
         sub_booked_byte(task->minor,task->to_write->size);
         add_to_buffer(LOW_PRIORITY, task->minor, task->to_write->size);
         pr_info("Operation completed, bytes writed to the device at low priority: %s\n", task->to_write->content);
         
-        // release token acquired in setup_operation
+        // release token acquired in init_operation
         wake_up_interruptible(&(device->flow[LOW_PRIORITY]->waitqueue));
         mutex_unlock(&(flow->op_mutex));
         kfree(container_of((void*)data, async_task_t, del_work));
-        module_put(THIS_MODULE);
 
-        // send notification to app
-        memset(&info, 0, sizeof(struct kernel_siginfo));
+        // send notification to app with number of bytes readed
+        memset(&info, 0, sizeof(kernel_siginfo_t));
         info.si_signo = SIGETX;
         info.si_code = SI_QUEUE;
-        info.si_int = 1;
+        info.si_int = task->to_write->size;
 
         pr_info("Sending signal to app...\n");
-        if(send_sig_info(SIGETX, &info, task->thread) < 0) { pr_info("Unable to send signal\n"); }
+        if(send_sig_info(SIGETX, &info, task->thread) < 0) pr_info("Unable to send signal\n");
         pr_info("Send!\n");
 }
 
@@ -425,6 +421,7 @@ int init_module(void) {
         }
         pr_info("Kernel Module Inserted Successfully...\n");
         pr_info("%s: new driver registered, it is assigned major number %d\n",MODNAME, major);
+        pr_info("cazzo di dio");
         return 0;
 }
 
