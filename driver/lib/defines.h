@@ -78,13 +78,13 @@ typedef struct flow_manager {
 /** 
  * Single data segment of a linked list that represents a buffer, related to a priority flow of a specific minor
  * data_segment_t - data segment
- * @list:       list_head element to link to list
+ * @entry:      list_head element to link to list
  * @content:    byte content of data segment
  * @byte_read:  number of byte read up to instant t
  * @size:       size of data segment content
  */
 typedef struct data_segment {
-        struct list_head list;
+        struct list_head entry;
         char *content;
         int byte_read;
         int size;

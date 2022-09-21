@@ -32,7 +32,7 @@ void init_data_segment(data_segment_t *element, char *content, int len) {
  * Add new data segment at the end of the list, so we build the flow as a FIFO queue.
  */
 void write_data_segment(flow_manager_t *flow, data_segment_t *segment) {
-        list_add_tail(&(segment->list), &(flow->head));
+        list_add_tail(&(segment->entry), &(flow->head));
 }
 
 /**
@@ -48,7 +48,7 @@ void read_from_flow(flow_manager_t *flow, char *read_content, int len) {
 
         head = &(flow->head);
         cur = head->next;
-        cur_seg = list_entry(cur, data_segment_t, list);
+        cur_seg = list_entry(cur, data_segment_t, entry);
         byte_read = 0;
 
         // read data from one or more data segments
@@ -62,12 +62,12 @@ void read_from_flow(flow_manager_t *flow, char *read_content, int len) {
 
                 if (cur == head) break;
 
-                cur_seg = list_entry(cur, data_segment_t, list);
+                cur_seg = list_entry(cur, data_segment_t, entry);
         }
 
         // check if i must read in this condition: byte_to_read < cur->size
         if (cur != head) {
-                cur_seg = list_entry(cur, data_segment_t, list);
+                cur_seg = list_entry(cur, data_segment_t, entry);
                 memcpy(read_content + byte_read, cur_seg->content + cur_seg->byte_read, len - byte_read);
                 cur_seg->byte_read += len - byte_read;
                 byte_read += len - byte_read;
@@ -99,7 +99,7 @@ void free_flow(flow_manager_t *flow) {
 
         list_for_each(cur, head) {
                 if (old) list_del(old);
-                cur_seg = list_entry(cur, data_segment_t, list);
+                cur_seg = list_entry(cur, data_segment_t, entry);
                 free_data_segment(cur_seg);
                 old = cur;
         }

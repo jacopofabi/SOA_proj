@@ -16,7 +16,9 @@ sigset_t set;
 siginfo_t info;
 
 typedef void (*sighandler_t)(int);
-void event_handler(int number) { printf("\nAsynchronous write terminated\n"); }
+void event_handler(int number) { 
+        //do nothing
+}
 
 int main(int argc, char** argv) {
         int res;
@@ -49,7 +51,7 @@ int main(int argc, char** argv) {
         }
 
         // setup signal and signalset for async notification
-        // SA_SIGINFO flag returns data linked by the kernel
+        // SA_SIGINFO flag is needed to get data linked by the kernel in si_int
         sigemptyset(&sig.sa_mask);
         sig.sa_flags = (SA_SIGINFO | SA_RESTART);
         sig.sa_handler = event_handler;
@@ -127,6 +129,7 @@ int main(int argc, char** argv) {
                         scanf("%s", buf);
                         res = device_write(fd, buf, strlen(buf));
                         if (res == -1) printf("Error on write operation(%s)\n", strerror(errno));
+                        // different behavior based on priority
                         else {
                                 // low priority: keep the interface able to synchronously notify the outcome
                                 if (priority == 0) {
