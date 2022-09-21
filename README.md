@@ -9,9 +9,9 @@ Le operazioni di lettura sono tutte eseguite in maniera sincrona.
 Il device driver dovrebbe supportare 128 devices corrispondenti alla stessa quantità di minor number.
 
 Il device driver dovrebbe implementare il supporto per il servizio ioctl(..) in modo tale da gestire la sessione di I/O come segue:  
-• Setup del livello di priorità (alto o basso) per le operazioni;  
-• Operazioni di lettura e scrittura bloccanti vs non bloccanti;  
-• Setup del timeout che regola il risveglio delle operazioni bloccanti.  
+    • Setup del livello di priorità (alto o basso) per le operazioni;  
+    • Operazioni di lettura e scrittura bloccanti vs non bloccanti;  
+    • Setup del timeout che regola il risveglio delle operazioni bloccanti.  
 
 Alcuni parametri e funzioni del modulo Linux dovrebbero essere implementati in modo tale da poter abilitare o disabilitare un device file, in termini di specifico minor number.
 Se è disabilitato, qualsiasi tentativo di aprire una sessione dovrebbe fallire (ma sessioni già aperte verranno comunque gestite). 
