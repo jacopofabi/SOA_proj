@@ -43,10 +43,6 @@
 #define MAX_SECONDS 3600                                 // maximum amount of seconds for timeout
 #define MAX_BYTE_IN_BUFFER 32 * 4096                     // maximum number of byte in buffer: 5096 * sizeof(data_segment_t)
 
-/* Signal for async notification */
-#define SIGETX    44
-
-
 /* STRUCTURES DEFINITION */
 
 /** 
@@ -105,14 +101,14 @@ typedef struct device_manager {
  * async_task_t - deffered work
  * @del_work:           delayed_work struct uses a timer to run after the specified time interval
  * @to_write:           pointer to data segment to write
+ * @session:            session to the device file
  * @minor:              minor number of the device
- * @thread:             thread that has requested the deferred work
  */
 typedef struct async_task {
         struct delayed_work del_work;
         data_segment_t *to_write;
+        session_t *session;
         int minor;
-        struct task_struct *thread;
 } async_task_t;
 
 
@@ -142,15 +138,13 @@ void free_flow(flow_manager_t *);
 #define byte_to_read(priority, minor) bytes_in_buffer[get_buffer_index(priority, minor)]
 
 #define get_seconds(sec) (sec > MAX_SECONDS ? sec = MAX_SECONDS : (sec == 0 ? sec = MIN_SECONDS : sec))
-#define used_space(priority, minor) (priority == LOW_PRIORITY ? (bytes_in_buffer[get_buffer_index(priority, minor)] + booked_byte[minor]) : bytes_in_buffer[get_buffer_index(priority, minor)])
+#define used_space(priority, minor) (priority == LOW_PRIORITY ? (bytes_in_buffer[get_buffer_index(priority, minor)]) : bytes_in_buffer[get_buffer_index(priority, minor)])
 #define free_space(priority, minor) MAX_BYTE_IN_BUFFER - used_space(priority, minor)
 #define is_free(priority, minor) (free_space(priority, minor) > 0 ? 1 : 0)
 #define is_empty(priority, minor) (byte_to_read(priority, minor) == 0 ? 1 : 0)
 #define is_blocking(flags) (flags == GFP_KERNEL ? 1 : 0)
 #define add_to_buffer(priority, minor, len) bytes_in_buffer[get_buffer_index(priority, minor)] += len
-#define add_booked_byte(minor, len) booked_byte[minor] += len
 #define sub_to_buffer(priority, minor, len) bytes_in_buffer[get_buffer_index(priority, minor)] -= len
-#define sub_booked_byte(minor, len) booked_byte[minor] -= len
 #define inc_thread_in_wait(priority, minor) __sync_fetch_and_add(threads_in_wait + get_thread_index(priority, minor), 1)
 #define dec_thread_in_wait(priority, minor) __sync_fetch_and_sub(threads_in_wait + get_thread_index(priority, minor), 1)
 

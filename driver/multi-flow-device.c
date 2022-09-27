@@ -10,8 +10,8 @@
 
 /* Module parameters */
 bool enabled[MINOR_NUMBER] = {[0 ... (MINOR_NUMBER-1)] = true};                          //state of the device files
-long bytes_in_buffer[FLOWS * MINOR_NUMBER];                                              //#bytes in manager for every minor
-long threads_in_wait[FLOWS * MINOR_NUMBER];                                              //#threads in wait on manager for every minor
+long bytes_in_buffer[FLOWS * MINOR_NUMBER];                                              //#bytes in flow for every minor
+long threads_in_wait[FLOWS * MINOR_NUMBER];                                              //#threads in wait on flow for every minor
 
 // only device enabling state can be modified, so we enable write permission
 module_param_array(enabled, bool, NULL, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
@@ -25,11 +25,6 @@ MODULE_PARM_DESC(hp_threads, "Number of threads currently in wait on low and hig
 /* Global variables */
 static int major;
 device_manager_t devices[MINOR_NUMBER];
-long booked_byte[MINOR_NUMBER] = {[0 ... (MINOR_NUMBER-1)] = 0};
-
-/* Signaling for asynchronous notification */
-kernel_siginfo_t info;
-static int signum = 0;
 
 /* Function prototypes */
 int init_module(void);
@@ -46,9 +41,9 @@ void async_write(struct delayed_work *);
 *  Each field corresponds to the address of some function defined by the driver to handle a requested operation:
         - open session for a minor
         - release session for a minor
-        - read for a minor
-        - write for a minor
         - manage I/O control requests for a minor
+        - write for a minor
+        - read for a minor
 */
 static struct file_operations fops = {
         .owner = THIS_MODULE,
@@ -171,10 +166,12 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
 
         // copy data to write on a temp buffer, from user to kernel space returns # of bytes that colud not be copied
         tmp_buf = kmalloc(len, session->flags);
+        if (tmp_buf == NULL) return -1;
         byte_not_copied = copy_from_user(tmp_buf, buff, len);
 
         // prepare memory areas
         to_write = kmalloc(sizeof(data_segment_t), session->flags);
+        if (to_write == NULL) return -1;
 
         // setup for blocking or non-blocking operation
         res = init_operation(flow, session, minor, "write");
@@ -193,27 +190,34 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
                 write_data_segment(flow, to_write);
                 add_to_buffer(HIGH_PRIORITY, minor, len);
                 wake_up_interruptible(&(flow->waitqueue));
-                mutex_unlock(&(device->flow[session->priority]->op_mutex));
                 pr_info("Operation completed, bytes writed to the device at high priority: %s\n", tmp_buf);
         } 
         else {
                 pr_info("The selected operation is required at low priority.\n");
-                task = kmalloc(sizeof(async_task_t), session->flags);   // setup the async task
+                // setup the async task
+                task = kmalloc(sizeof(async_task_t), session->flags);
+                if (task == NULL) return -1;
                 task->to_write = to_write;
+                task->session = session;
                 task->minor = minor;
-                
-                // save PID for signalling and save #bytes that will be written
-                task->thread = get_current(); 
-                signum = SIGETX;
-                add_booked_byte(minor,len);
 
-                //initialize an already declared delayed_work item with a deffered write handler
+                // initialize an already declared delayed_work item with a deffered write handler
                 pr_info("Insert thread in the workqueue...\n");
                 INIT_DELAYED_WORK(&(task->del_work), (void *)async_write);
                 
+                // reserve logical space for the deferred write: next writes knows that this space is occupied
+                // in this way the user is immediately notified of the completation of the operation
+                // it will be the deamon, which will be scheduled when the kernel decides, to actually complete the write
+                add_to_buffer(LOW_PRIORITY, minor, len);
+                
                 // insert the async task in the workqueue associated to the device after a delay of 5sec
                 queue_delayed_work(device->workqueue, &(task->del_work), msecs_to_jiffies(5000));
+
         }
+
+        // release token acquired in init operation
+        // the queue is not woken up at low priority because we schedule a deferred work, so this is executed later
+        mutex_unlock(&(device->flow[session->priority]->op_mutex));
         return len;
 
         // label for manage memory release in case of error
@@ -253,6 +257,7 @@ static ssize_t device_read(struct file *filp, char *buff, size_t len, loff_t *of
         if (len <= 0) return 0;
 
         tmp_buf = kmalloc(len, session->flags);
+        if (tmp_buf == NULL) return -1;
 
         // setup for blocking or non-blocking operation
         res = init_operation(flow, session, minor, "read");
@@ -357,6 +362,10 @@ int init_operation(flow_manager_t *flow, session_t *session, int minor, char *ty
  * async_write - asynchronous write for low priority flow
  * @data:      pointer to the delayed_work struct that runs the deffered write
  * 
+ * Deferred work never fail, so this is scheduled only if all the structures needed are correctly allocated:
+ *  - async_task_t structure, object to execute and manage a deferred write
+ *  - data_segment_t structure, segment to write (+ temporary buffer to store at kernel level the user data to write)
+ * --> we need to ensure also that there is space available on the flow
  */
 void async_write(struct delayed_work *data) {
         // we retrieve the async_task_t struct address using the member delayed_work address, data points to del_work
@@ -364,25 +373,19 @@ void async_write(struct delayed_work *data) {
         device_manager_t *device = devices + task->minor;
         flow_manager_t *flow = device->flow[LOW_PRIORITY];
 
+        // wait until token is available
+        inc_thread_in_wait(task->session->priority, task->minor);
+        mutex_lock(&(flow->op_mutex));
+        dec_thread_in_wait(task->session->priority, task->minor);
+
+        // write data segment
         write_data_segment(device->flow[LOW_PRIORITY], task->to_write);
-        sub_booked_byte(task->minor,task->to_write->size);
-        add_to_buffer(LOW_PRIORITY, task->minor, task->to_write->size);
         pr_info("Operation completed, bytes writed to the device at low priority: %s\n", task->to_write->content);
         
-        // release token acquired in init_operation
-        wake_up_interruptible(&(device->flow[LOW_PRIORITY]->waitqueue));
+        // free memory, release token and wake up the queue
+        kfree(task);
         mutex_unlock(&(flow->op_mutex));
-        kfree(container_of((void*)data, async_task_t, del_work));
-
-        // send notification to app with number of bytes readed
-        memset(&info, 0, sizeof(kernel_siginfo_t));
-        info.si_signo = SIGETX;
-        info.si_code = SI_QUEUE;
-        info.si_int = task->to_write->size;
-
-        pr_info("Sending signal to app...\n");
-        if(send_sig_info(SIGETX, &info, task->thread) < 0) pr_info("Unable to send signal\n");
-        pr_info("Send!\n");
+        wake_up_interruptible(&(device->flow[LOW_PRIORITY]->waitqueue));
 }
 
 
@@ -421,7 +424,6 @@ int init_module(void) {
         }
         pr_info("Kernel Module Inserted Successfully...\n");
         pr_info("%s: new driver registered, it is assigned major number %d\n",MODNAME, major);
-        pr_info("cazzo di dio");
         return 0;
 }
 

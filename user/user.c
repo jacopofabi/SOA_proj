@@ -10,15 +10,6 @@
 #include "lib/defines.h"
 
 int priority;
-int num;
-struct sigaction sig;
-sigset_t set;
-siginfo_t info;
-
-typedef void (*sighandler_t)(int);
-void event_handler(int number) { 
-        //do nothing
-}
 
 int main(int argc, char** argv) {
         int res;
@@ -49,19 +40,6 @@ int main(int argc, char** argv) {
                 else printf("open error on device file %s\n", device_path);
                 return -1;
         }
-
-        // setup signal and signalset for async notification
-        // SA_SIGINFO flag is needed to get data linked by the kernel in si_int
-        sigemptyset(&sig.sa_mask);
-        sig.sa_flags = (SA_SIGINFO | SA_RESTART);
-        sig.sa_handler = event_handler;
-        sigaction(SIGETX, &sig, NULL);
-        
-        sigemptyset(&set);
-        if (sigaddset(&set, SIGETX) == -1) { 
-                perror("Sigaddset error"); 
-                exit(-1);
-        }  
 
         // loop for operations on the device file
         while (true) {
@@ -129,22 +107,7 @@ int main(int argc, char** argv) {
                         scanf("%s", buf);
                         res = device_write(fd, buf, strlen(buf));
                         if (res == -1) printf("Error on write operation(%s)\n", strerror(errno));
-                        // different behavior based on priority
-                        else {
-                                // low priority: keep the interface able to synchronously notify the outcome
-                                if (priority == 0) {
-                                        printf("Waiting for async notification of write for %d bytes from device %s\n", res, device_path); 
-                                        num = sigwaitinfo(&set, &info);
-                                        if (num == -1) {
-                                                if (errno == EINTR) continue;
-                                                printf("Error on sigwait\n");
-                                                return EXIT_FAILURE;
-                                        }
-                                        else printf("Asynchronous write terminated, writed %d bytes\n", info.si_int);
-                                }
-                                // high priority: notify immediately the result returned from the driver
-                                else printf("%d bytes are correctly written to device %s\n", res, device_path);
-                        }
+                        else printf("%d bytes are correctly written to device %s\n", res, device_path);
                         break;
                 case READ:
                         printf("Inserisci quanti byte vuoi leggere: ");

@@ -2,26 +2,19 @@ make all --print-data-base --no-builtin-variables --no-builtin-rules --question
 make: *** No rule to make target 'all'.  Stop.
 
 # GNU Make 4.3
- 
 # Built for x86_64-pc-linux-gnu
- 
 # Copyright (C) 1988-2020 Free Software Foundation, Inc.
- 
 # License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
- 
 # This is free software: you are free to change and redistribute it.
- 
 # There is NO WARRANTY, to the extent permitted by law.
- 
 
-# Make data base, printed on Wed Sep 21 20:03:16 2022
+# Make data base, printed on Tue Sep 27 23:35:11 2022
 
 # Variables
 
 # environment
 JAVA_HOME = /usr/java/jdk-11.0.15
 # environment
- 
 GDK_BACKEND = x11
 # environment
 LC_ALL = C
@@ -62,7 +55,7 @@ VSCODE_CODE_CACHE_PATH = /home/jacopo/.config/Code/CachedData/da76f93349a72022ca
 # environment
 LANG = C
 # environment
-XAUTHORITY = /run/user/1000/.mutter-Xwaylandauth.B3SQS1
+XAUTHORITY = /run/user/1000/.mutter-Xwaylandauth.SA16S1
 # default
 .LOADED := 
 # default
@@ -96,13 +89,13 @@ MAKEFILE_LIST :=
 # environment
 ZSH = /home/jacopo/.oh-my-zsh
 # environment
-VSCODE_PID = 4561
+VSCODE_PID = 4740
 # environment
 XDG_SESSION_TYPE = wayland
 # automatic
 ?D = $(patsubst %/,%,$(dir $?))
 # environment
-SESSION_MANAGER = local/ubuntu:@/tmp/.ICE-unix/2038,unix/ubuntu:/tmp/.ICE-unix/2038
+SESSION_MANAGER = local/ubuntu:@/tmp/.ICE-unix/2005,unix/ubuntu:/tmp/.ICE-unix/2005
 # automatic
 *F = $(notdir $*)
 # environment
@@ -140,7 +133,7 @@ MAKEFILES :=
 # automatic
 ^F = $(notdir $^)
 # environment
-INVOCATION_ID = 1f3fda4b49904713b8f340980e290af1
+INVOCATION_ID = 91b9c18c643a48a3b014cd31cfc68272
 # environment
 USERNAME = jacopo
 # environment
@@ -168,7 +161,7 @@ GIO_LAUNCHED_DESKTOP_FILE = /usr/share/applications/code.desktop
 # makefile
 .DEFAULT_GOAL := 
 # environment
-SYSTEMD_EXEC_PID = 2060
+SYSTEMD_EXEC_PID = 2023
 # environment
 DISPLAY = :0
 # environment
@@ -178,9 +171,9 @@ GTK_MODULES = gail:atk-bridge
 # default
 MAKE_VERSION := 4.3
 # environment
-MANAGERPID = 1957
+MANAGERPID = 1933
 # environment
-GIO_LAUNCHED_DESKTOP_FILE_PID = 4561
+GIO_LAUNCHED_DESKTOP_FILE_PID = 4740
 # environment
 PAGER = less
 # environment
@@ -188,7 +181,7 @@ _ = /usr/share/code/code
 # environment
 XDG_RUNTIME_DIR = /run/user/1000
 # environment
-JOURNAL_STREAM = 8:37296
+JOURNAL_STREAM = 8:34534
 # environment
 XDG_SESSION_CLASS = user
 # environment
@@ -255,7 +248,6 @@ all:
 # Not a target:
 makefile:
 #  Implicit rule search has been done.
- 
 #  File does not exist.
 #  File has been updated.
 #  Failed to be updated.
@@ -281,6 +273,6 @@ GNUmakefile:
 # strcache performance: lookups = 20 / hit rate = 15%
 # hash-table stats:
 # Load=17/8192=0%, Rehash=0, Collisions=0/20=0%
-# Finished Make data base on Wed Sep 21 20:03:16 2022
+# Finished Make data base on Tue Sep 27 23:35:11 2022
 
  
