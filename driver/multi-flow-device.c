@@ -66,6 +66,10 @@ static int device_open(struct inode *inode, struct file *filp) {
         if (minor < 0 && minor >= MINOR_NUMBER) return -ENODEV;
         if (!enabled[minor]) return -EBUSY;
         session = kmalloc(sizeof(session_t), GFP_KERNEL);
+        if (session == NULL) {
+                pr_info("Failure on session_t allocation\n");
+                return -1;
+        }
         session->priority = HIGH_PRIORITY;
         session->flags = GFP_KERNEL;
         session->timeout = MAX_SECONDS;
@@ -166,12 +170,18 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
 
         // copy data to write on a temp buffer, from user to kernel space returns # of bytes that colud not be copied
         tmp_buf = kmalloc(len, session->flags);
-        if (tmp_buf == NULL) return -1;
+        if (tmp_buf == NULL) {
+                pr_info("Failure on char* allocation\n");
+                return -1;
+        }
         byte_not_copied = copy_from_user(tmp_buf, buff, len);
 
         // prepare memory areas
         to_write = kmalloc(sizeof(data_segment_t), session->flags);
-        if (to_write == NULL) return -1;
+        if (to_write == NULL) {
+                pr_info("Failure on data_segment_t allocation\n");
+                return -1;
+        }
 
         // setup for blocking or non-blocking operation
         res = init_operation(flow, session, minor, "write");
@@ -196,7 +206,10 @@ static ssize_t device_write(struct file *filp, const char *buff, size_t len, lof
                 pr_info("The selected operation is required at low priority.\n");
                 // setup the async task
                 task = kmalloc(sizeof(async_task_t), session->flags);
-                if (task == NULL) return -1;
+                if (task == NULL) {
+                        pr_info("Failure on async_task_t allocation\n");
+                        return -1;
+                }
                 task->to_write = to_write;
                 task->session = session;
                 task->minor = minor;
@@ -257,7 +270,10 @@ static ssize_t device_read(struct file *filp, char *buff, size_t len, loff_t *of
         if (len <= 0) return 0;
 
         tmp_buf = kmalloc(len, session->flags);
-        if (tmp_buf == NULL) return -1;
+        if (tmp_buf == NULL) {
+                pr_info("Failure on char* allocation\n");
+                return -1;
+        }
 
         // setup for blocking or non-blocking operation
         res = init_operation(flow, session, minor, "read");
@@ -277,6 +293,10 @@ static ssize_t device_read(struct file *filp, char *buff, size_t len, loff_t *of
         res = copy_to_user(buff,tmp_buf,len);
         valid = len - res;
         final = kmalloc(valid, session->flags);
+        if (final == NULL) {
+                pr_info("Failure on char* allocation\n");
+                return -1;
+        }
         memcpy(final, tmp_buf, valid);
 
         pr_info("Operation completed, bytes readed from the device: %zu, %s\n", valid, final);
@@ -374,6 +394,7 @@ void async_write(struct delayed_work *data) {
         flow_manager_t *flow = device->flow[LOW_PRIORITY];
 
         // wait until token is available
+        pr_info("Started deferred work, waiting for lock...\n");
         inc_thread_in_wait(task->session->priority, task->minor);
         mutex_lock(&(flow->op_mutex));
         dec_thread_in_wait(task->session->priority, task->minor);
@@ -415,11 +436,13 @@ int init_module(void) {
         }
         // check errors in previous allocations
         if (i < MINOR_NUMBER) {
+                __unregister_chrdev(major, 0, MINOR_NUMBER, DEVICE_NAME);
                 for (; i > -1; i--) {
                         destroy_workqueue(devices[i].workqueue);
                         free_flow(devices[i].flow[LOW_PRIORITY]);
                         free_flow(devices[i].flow[HIGH_PRIORITY]);
                 }
+                pr_info("Module removed for memory allocation error\n");
                 return -ENOMEM;
         }
         pr_info("Kernel Module Inserted Successfully...\n");

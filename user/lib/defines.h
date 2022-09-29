@@ -18,6 +18,9 @@
 #define READ                    9
 #define RELEASE                 10
 
+#define MIN_TIMEOUT 1                                    // minimum amount of seconds for timeout
+#define MAX_TIMEOUT 3600                                 // maximum amount of seconds for timeout
+
 /** ioctl commands re-definition
 *   The ioctl function requires the same values used by the driver: 3,4,5,6,7 as defined in /driver/lib/defines.h 
 */
